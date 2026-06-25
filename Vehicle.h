@@ -1,9 +1,2 @@
 #pragma once
-#include "GameTypes.h"
-#include "Config.h"
-namespace Vehicle {
-    bool IsAllowed(CVehicle* vehicle, const ModConfig& cfg);
-    bool ForcePlayerPassengerSeat(CPed* player, CVehicle* vehicle);
-    bool RedirectControlsFromPassenger(CPed* player, CVehicle* vehicle);
-    void CancelPassengerDriver(CPed* player, CVehicle* vehicle);
-}
+class Vehicle { public: static bool IsAllowed(void* vehicle); static bool DriverSeatFree(void* vehicle); static bool PutPedInCarDirect(void* ped, void* vehicle, int seat); };

@@ -1,7 +1,2 @@
 #pragma once
-namespace PassengerDriver {
-    void Init();
-    void Update(float dtMs);
-    bool IsEnabled();
-    void ToggleEnabled();
-}
+class PassengerDriver { public: static void Init(); static void Update(float dtMs); static void Toggle(); };
