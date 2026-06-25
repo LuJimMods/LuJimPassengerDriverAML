@@ -1,5 +1,7 @@
 #pragma once
-class PassengerDriver {
+
+class PassengerDriver
+{
 public:
     static void Init();
     static void Update(float dtMs);

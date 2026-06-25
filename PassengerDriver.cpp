@@ -20,9 +20,15 @@ namespace
 
     void* gLastPed = nullptr;
     void* gLastVehicle = nullptr;
+    void* gLastPassengerVehicle = nullptr;
+
     int gLastSeatState = -999;
+    int gPassengerStableTicks = 0;
+
     bool gPlayerWasKnown = false;
     bool gVehicleWasKnown = false;
+    bool gPassengerModeLogged = false;
+
     unsigned int gMonitorTick = 0;
 
     const char* SeatName(int state)
@@ -48,11 +54,43 @@ namespace
 
         if(!gSymbolsLogged)
         {
-            LPD_Log("[MONITOR] V2.3.0 simbolos: FindPlayerPed=%p FindPlayerVehicle=%p CVehicle::IsDriver=%p",
+            LPD_Log("[MONITOR] V2.6.0 simbolos: FindPlayerPed=%p FindPlayerVehicle=%p CVehicle::IsDriver=%p",
                     reinterpret_cast<void*>(gFindPlayerPed),
                     reinterpret_cast<void*>(gFindPlayerVehicle),
                     reinterpret_cast<void*>(gVehicleIsDriver));
             gSymbolsLogged = true;
+        }
+    }
+
+    void ResetVehicleState()
+    {
+        gVehicleWasKnown = false;
+        gLastVehicle = nullptr;
+        gLastSeatState = 0;
+        gPassengerStableTicks = 0;
+        gLastPassengerVehicle = nullptr;
+        gPassengerModeLogged = false;
+    }
+
+    void LogPassengerDetection(void* ped, void* vehicle)
+    {
+        if(vehicle != gLastPassengerVehicle)
+        {
+            gLastPassengerVehicle = vehicle;
+            gPassengerStableTicks = 0;
+            gPassengerModeLogged = false;
+        }
+
+        ++gPassengerStableTicks;
+
+        if(!gPassengerModeLogged)
+        {
+            LPD_Log("[PASSENGER] Entrada/estado como passageiro detectado. Ped=%p Vehicle=%p Ticks=%d",
+                    ped,
+                    vehicle,
+                    gPassengerStableTicks);
+            LPD_Log("[PASSENGER] V2.6.0 apenas detecta. Nao move jogador e nao controla recruta.");
+            gPassengerModeLogged = true;
         }
     }
 
@@ -78,11 +116,10 @@ namespace
             {
                 LPD_Log("[PLAYER] CJ perdido/indisponivel");
             }
+
             gPlayerWasKnown = false;
-            gVehicleWasKnown = false;
             gLastPed = nullptr;
-            gLastVehicle = nullptr;
-            gLastSeatState = 0;
+            ResetVehicleState();
             return;
         }
 
@@ -139,20 +176,32 @@ namespace
                 {
                     LPD_Log("[PLAYER] Fora do veiculo");
                 }
-                gVehicleWasKnown = false;
+                ResetVehicleState();
             }
 
             gLastVehicle = vehicle;
             gLastSeatState = seatState;
         }
 
+        if(vehicle && seatState == 2)
+        {
+            LogPassengerDetection(ped, vehicle);
+        }
+        else if(seatState != 2)
+        {
+            gPassengerStableTicks = 0;
+            gLastPassengerVehicle = nullptr;
+            gPassengerModeLogged = false;
+        }
+
         ++gMonitorTick;
         if((gMonitorTick % 40) == 0)
         {
-            LPD_Log("[MONITOR] V2.3.0 ativo. Ped=%p Vehicle=%p Seat=%s Enabled=%d ExperimentalHooks=%d",
+            LPD_Log("[MONITOR] V2.6.0 ativo. Ped=%p Vehicle=%p Seat=%s PassengerTicks=%d Enabled=%d ExperimentalHooks=%d",
                     ped,
                     vehicle,
                     SeatName(seatState),
+                    gPassengerStableTicks,
                     LPDSettings::values.enabled ? 1 : 0,
                     LPDSettings::values.experimentalHooks ? 1 : 0);
         }
@@ -177,7 +226,7 @@ void PassengerDriver::Init()
         LPD_Log("[INIT] Modo salvo no INI: desativado.");
     }
 
-    LPD_Log("[INIT] V2.3.0: monitor de jogador/veiculo ativo com offsets GTASA. Nao move jogador e nao controla recruta.");
+    LPD_Log("[INIT] V2.6.0: detecta banco de passageiro. Nao move jogador e nao controla recruta.");
 }
 
 void PassengerDriver::Toggle()
@@ -205,8 +254,8 @@ void PassengerDriver::Update(float dtMs)
         Toggle();
     }
 
-    // V2.3.0: monitoramento seguro sempre ativo para teste.
-    // Ele apenas le ponteiros retornados por funcoes do proprio jogo e grava no log.
+    // V2.6.0: monitoramento seguro sempre ativo para teste.
+    // Ele apenas detecta motorista/passageiro e grava no log.
     MonitorPlayerVehicle();
 
     if(!LPDSettings::values.enabled)
@@ -219,7 +268,7 @@ void PassengerDriver::Update(float dtMs)
         static bool warned = false;
         if(!warned)
         {
-            LPD_Log("[SAFE] ExperimentalHooks=0. Monitor seguro ligado, hooks reais bloqueados para evitar crash.");
+            LPD_Log("[SAFE] ExperimentalHooks=0. V2.6.0 apenas detecta passageiro. Acao real bloqueada para evitar crash.");
             warned = true;
         }
         return;
