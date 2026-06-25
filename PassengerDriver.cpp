@@ -5,16 +5,12 @@
 #include "Log.h"
 #include "Recruit.h"
 #include "Vehicle.h"
+#include "GameSymbols.h"
 
-#include <dlfcn.h>
 #include <cstdint>
 
 namespace
 {
-    typedef void* (*FindPlayerPedFn)(int playerId);
-    typedef void* (*FindPlayerVehicleFn)(int playerId, bool includeRemote);
-    typedef bool (*VehicleIsDriverFn)(void* vehicle, const void* ped);
-
     FindPlayerPedFn gFindPlayerPed = nullptr;
     FindPlayerVehicleFn gFindPlayerVehicle = nullptr;
     VehicleIsDriverFn gVehicleIsDriver = nullptr;
@@ -46,13 +42,13 @@ namespace
         if(gSymbolsResolved) return;
         gSymbolsResolved = true;
 
-        gFindPlayerPed = reinterpret_cast<FindPlayerPedFn>(dlsym(RTLD_DEFAULT, "_Z13FindPlayerPedi"));
-        gFindPlayerVehicle = reinterpret_cast<FindPlayerVehicleFn>(dlsym(RTLD_DEFAULT, "_Z17FindPlayerVehicleib"));
-        gVehicleIsDriver = reinterpret_cast<VehicleIsDriverFn>(dlsym(RTLD_DEFAULT, "_ZNK8CVehicle8IsDriverEPK4CPed"));
+        gFindPlayerPed = GetFindPlayerPed();
+        gFindPlayerVehicle = GetFindPlayerVehicle();
+        gVehicleIsDriver = GetVehicleIsDriver();
 
         if(!gSymbolsLogged)
         {
-            LPD_Log("[MONITOR] V2.2.0 simbolos: FindPlayerPed=%p FindPlayerVehicle=%p CVehicle::IsDriver=%p",
+            LPD_Log("[MONITOR] V2.3.0 simbolos: FindPlayerPed=%p FindPlayerVehicle=%p CVehicle::IsDriver=%p",
                     reinterpret_cast<void*>(gFindPlayerPed),
                     reinterpret_cast<void*>(gFindPlayerVehicle),
                     reinterpret_cast<void*>(gVehicleIsDriver));
@@ -153,7 +149,7 @@ namespace
         ++gMonitorTick;
         if((gMonitorTick % 40) == 0)
         {
-            LPD_Log("[MONITOR] V2.2.0 ativo. Ped=%p Vehicle=%p Seat=%s Enabled=%d ExperimentalHooks=%d",
+            LPD_Log("[MONITOR] V2.3.0 ativo. Ped=%p Vehicle=%p Seat=%s Enabled=%d ExperimentalHooks=%d",
                     ped,
                     vehicle,
                     SeatName(seatState),
@@ -181,7 +177,7 @@ void PassengerDriver::Init()
         LPD_Log("[INIT] Modo salvo no INI: desativado.");
     }
 
-    LPD_Log("[INIT] V2.2.0: monitor de jogador/veiculo ativo. Nao move jogador e nao controla recruta.");
+    LPD_Log("[INIT] V2.3.0: monitor de jogador/veiculo ativo com offsets GTASA. Nao move jogador e nao controla recruta.");
 }
 
 void PassengerDriver::Toggle()
@@ -209,7 +205,7 @@ void PassengerDriver::Update(float dtMs)
         Toggle();
     }
 
-    // V2.2.0: monitoramento seguro sempre ativo para teste.
+    // V2.3.0: monitoramento seguro sempre ativo para teste.
     // Ele apenas le ponteiros retornados por funcoes do proprio jogo e grava no log.
     MonitorPlayerVehicle();
 
