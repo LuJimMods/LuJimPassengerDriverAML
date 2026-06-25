@@ -8,34 +8,24 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Android NDK r21e
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r21e
           add-to-path: true
-
       - name: Build armeabi-v7a
         run: |
           ndk-build NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=Android.mk NDK_APPLICATION_MK=Application.mk -j2
-
       - name: Package mod
         run: |
           mkdir -p artifact/mods/configs
-          mkdir -p artifact/mods
-
           cp libs/armeabi-v7a/libLuJimPassengerDriver.so artifact/mods/
-
-          if [ -f LuJimPassengerDriver.ini ]; then
-            cp LuJimPassengerDriver.ini artifact/mods/configs/
-          fi
-
+          cp configs/LuJimPassengerDriver.ini artifact/mods/configs/
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LuJimPassengerDriver
+          name: LuJimPassengerDriver_V1_Offsets
           path: artifact/
