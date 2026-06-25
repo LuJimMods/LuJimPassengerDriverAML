@@ -1,64 +1,41 @@
 # LuJim Passenger Driver
 
-Plugin AML para GTA San Andreas Android.
+AML plugin for GTA San Andreas Android.
 
-## Estrutura no celular
+## Estrutura no jogo
 
-Copie o conteúdo do artifact para:
+Copie o conteudo do artifact para:
 
-```text
-Android_unprotected/data/com.rockstargames.gtasa/
-```
+`/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/`
 
-A estrutura final fica assim:
+Resultado esperado:
 
 ```text
-Android_unprotected/
-└── data/
-    └── com.rockstargames.gtasa/
-        ├── configs/
-        │   └── LuJimPassengerDriver/
-        │       ├── LuJimPassengerDriver.ini
-        │       └── LuJimPassengerDriver.log
-        └── mods/
-            ├── libLuJimPassengerDriver.so
-            └── libLuJimPassengerDriver64.so
+com.rockstargames.gtasa/
+├── configs/
+│   └── LuJimPassengerDriver/
+│       ├── LuJimPassengerDriver.ini
+│       └── LuJimPassengerDriver.log
+└── mods/
+    ├── libLuJimPassengerDriver.so
+    └── libLuJimPassengerDriver64.so
 ```
 
 ## Bibliotecas
 
-- `libLuJimPassengerDriver.so` = versão 32 bits / armeabi-v7a.
-- `libLuJimPassengerDriver64.so` = versão 64 bits / arm64-v8a.
+- `libLuJimPassengerDriver.so` = 32 bits / armeabi-v7a
+- `libLuJimPassengerDriver64.so` = 64 bits / arm64-v8a
 
-## Configuração
+## Configuracao
 
-O mod usa exclusivamente este caminho para configuração e log:
+O mod usa exclusivamente:
 
-```text
-/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs/LuJimPassengerDriver/
-```
+`/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs/LuJimPassengerDriver/LuJimPassengerDriver.ini`
 
-Arquivos:
+O log fica no mesmo diretorio:
 
-```text
-LuJimPassengerDriver.ini
-LuJimPassengerDriver.log
-```
+`/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs/LuJimPassengerDriver/LuJimPassengerDriver.log`
 
-Se a pasta ou o arquivo não existirem, o mod cria automaticamente.
+## Observacao
 
-## Estado atual
-
-Esta base é segura para teste: os hooks perigosos continuam desativados por padrão com:
-
-```ini
-ExperimentalHooks=0
-```
-
-Isso permite testar carregamento, criação de pastas, leitura do INI e geração do log antes de ativar hooks avançados.
-
-## Nome
-
-LuJim Passenger Driver
-
-Autor: LuJim Mods
+Esta base ainda mantem os hooks perigosos protegidos por `ExperimentalHooks=0` para evitar crash enquanto a logica completa de entrada pelo passageiro e recruta motorista e implementada.
