@@ -1,90 +1,52 @@
+#include <mod/amlmod.h>
+#include <mod/logger.h>
+
 #include "Config.h"
 #include "Log.h"
 
-#include <cstdio>
-#include <cstring>
+// LuJim Passenger Driver - AML Loader Fix
+// Esta versão usa os headers reais do AML para o plugin aparecer corretamente
+// na lista de mods carregados. Não instala hooks, não inicia threads e não chama
+// funções internas do GTA SA. O objetivo é confirmar carregamento estável.
 
-// LuJim Passenger Driver - AML Safe Loader Test
-// Esta versao foi feita apenas para confirmar que a lib carrega no AML sem crash.
-// Nao inicia hooks, nao inicia thread e nao chama funcoes internas do GTA SA.
+MYMOD(lujim.passengerdriver, LuJim Passenger Driver, 1.0.2, LuJim Mods)
+NEEDGAME(com.rockstargames.gtasa)
 
-struct ModVersionCompat {
-    unsigned short major;
-    unsigned short minor;
-    unsigned short revision;
-    unsigned short build;
-};
-
-struct ModInfoCompat {
-    char szGUID[48];
-    char szName[48];
-    char szVersion[24];
-    char szAuthor[48];
-    ModVersionCompat version;
-};
-
-static ModInfoCompat gModInfo;
-static bool gModInfoReady = false;
 static bool gLoaded = false;
 
-static void LPD_Copy(char* dst, size_t size, const char* src)
+ON_MOD_PRELOAD()
 {
-    if (!dst || size == 0) return;
-    std::snprintf(dst, size, "%s", src ? src : "");
+    // Não chama Config nem funções do jogo aqui.
+    // Este callback pode rodar cedo demais para mexer em arquivos ou símbolos.
 }
 
-static void PrepareModInfo()
+ON_MOD_LOAD()
 {
-    if (gModInfoReady) return;
-
-    std::memset(&gModInfo, 0, sizeof(gModInfo));
-
-    LPD_Copy(gModInfo.szGUID, sizeof(gModInfo.szGUID), "lujim.passengerdriver");
-    LPD_Copy(gModInfo.szName, sizeof(gModInfo.szName), "LuJim Passenger Driver");
-    LPD_Copy(gModInfo.szVersion, sizeof(gModInfo.szVersion), "1.0.1-safe");
-    LPD_Copy(gModInfo.szAuthor, sizeof(gModInfo.szAuthor), "LuJim Mods");
-
-    gModInfo.version.major = 1;
-    gModInfo.version.minor = 0;
-    gModInfo.version.revision = 1;
-    gModInfo.version.build = 0;
-
-    gModInfoReady = true;
-}
-
-extern "C" __attribute__((visibility("default"))) void* __GetModInfo()
-{
-    PrepareModInfo();
-    return &gModInfo;
-}
-
-extern "C" __attribute__((visibility("default"))) const char* __INeedASpecificGame()
-{
-    return "com.rockstargames.gtasa";
-}
-
-extern "C" __attribute__((visibility("default"))) void OnModPreLoad()
-{
-    PrepareModInfo();
-}
-
-extern "C" __attribute__((visibility("default"))) void OnModLoad()
-{
-    PrepareModInfo();
-
     if (gLoaded) return;
     gLoaded = true;
+
+    if (logger)
+    {
+        logger->SetTag("LuJimPassengerDriver");
+        logger->Info("LuJim Passenger Driver: OnModLoad chamado.");
+    }
 
     Config::EnsureDefault();
     Config::Load();
 
     LPD_Log("[AML] LuJim Passenger Driver carregado com sucesso.");
-    LPD_Log("[AML] Versao: 1.0.1-safe");
+    LPD_Log("[AML] Versao: 1.0.2-loaderfix");
     LPD_Log("[AML] Caminho do INI: %s", Config::Path());
-    LPD_Log("[AML] Hooks desativados nesta versao segura.");
+    LPD_Log("[AML] Caminho do LOG: /storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs/LuJimPassengerDriver/LuJimPassengerDriver.log");
+    LPD_Log("[AML] Hooks desativados nesta versao de teste.");
 }
 
-extern "C" __attribute__((visibility("default"))) void OnAllModsLoaded()
+ON_ALL_MODS_LOAD()
 {
+    if (logger)
+    {
+        logger->Info("LuJim Passenger Driver: OnAllModsLoaded chamado.");
+    }
+
     LPD_Log("[AML] OnAllModsLoaded chamado - LuJim Passenger Driver.");
 }
