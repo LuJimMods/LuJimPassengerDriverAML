@@ -1,47 +1,64 @@
-# LuJim Passenger Driver - V1 Safe Test
+# LuJim Passenger Driver
+
+Plugin AML para GTA San Andreas Android.
+
+## Estrutura no celular
+
+Copie o conteúdo do artifact para:
+
+```text
+Android_unprotected/data/com.rockstargames.gtasa/
+```
+
+A estrutura final fica assim:
+
+```text
+Android_unprotected/
+└── data/
+    └── com.rockstargames.gtasa/
+        ├── configs/
+        │   └── LuJimPassengerDriver/
+        │       ├── LuJimPassengerDriver.ini
+        │       └── LuJimPassengerDriver.log
+        └── mods/
+            ├── libLuJimPassengerDriver.so
+            └── libLuJimPassengerDriver64.so
+```
+
+## Bibliotecas
+
+- `libLuJimPassengerDriver.so` = versão 32 bits / armeabi-v7a.
+- `libLuJimPassengerDriver64.so` = versão 64 bits / arm64-v8a.
+
+## Configuração
+
+O mod usa exclusivamente este caminho para configuração e log:
+
+```text
+/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs/LuJimPassengerDriver/
+```
+
+Arquivos:
+
+```text
+LuJimPassengerDriver.ini
+LuJimPassengerDriver.log
+```
+
+Se a pasta ou o arquivo não existirem, o mod cria automaticamente.
+
+## Estado atual
+
+Esta base é segura para teste: os hooks perigosos continuam desativados por padrão com:
+
+```ini
+ExperimentalHooks=0
+```
+
+Isso permite testar carregamento, criação de pastas, leitura do INI e geração do log antes de ativar hooks avançados.
+
+## Nome
+
+LuJim Passenger Driver
 
 Autor: LuJim Mods
-
-Base AML para GTA San Andreas Android 2.00 / AML 1.3.0.
-
-## O que esta versão faz
-
-- Compila pelo GitHub Actions.
-- Carrega no AML com `OnModLoad`.
-- Cria/lê `mods/configs/LuJimPassengerDriver.ini`.
-- Cria log próprio em `mods/logs/LuJimPassengerDriver.log`.
-- Possui sistema de notificações em português preparado.
-- Possui sistema de toggle por 3 segundos preparado.
-
-## Segurança
-
-`ExperimentalHooks=0` por padrão.
-
-Isso significa que os hooks perigosos de entrada em veículo, recruta e controle do carro ficam bloqueados até serem testados no jogo. Essa configuração evita crash no primeiro carregamento.
-
-## Instalação
-
-Copie:
-
-`mods/libLuJimPassengerDriver.so`
-
-para:
-
-`/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/mods/`
-
-E copie:
-
-`mods/configs/LuJimPassengerDriver.ini`
-
-para:
-
-`/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/mods/configs/`
-
-Depois abra o jogo e envie:
-
-- `aml.log`
-- `mods/logs/LuJimPassengerDriver.log`
-
-## Próxima etapa
-
-Ligar os hooks reais do botão Entrar, depois a sequência de recruta/motorista e jogador/passageiro.

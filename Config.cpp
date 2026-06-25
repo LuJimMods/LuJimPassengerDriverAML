@@ -11,10 +11,10 @@ static std::string trim(std::string s){
     s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char c){ return !std::isspace(c); }).base(), s.end());
     return s;
 }
-const char* Config::Path(){ return "/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/mods/configs/LuJimPassengerDriver.ini"; }
+const char* Config::Path(){ return "/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs/LuJimPassengerDriver/LuJimPassengerDriver.ini"; }
 void Config::EnsureDefault(){
-    mkdir("/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/mods", 0777);
-    mkdir("/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/mods/configs", 0777);
+    mkdir("/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs", 0777);
+    mkdir("/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs/LuJimPassengerDriver", 0777);
     std::ifstream i(Path());
     if(!i.good()) Save();
 }
@@ -49,8 +49,8 @@ bool Config::Load(){
     return true;
 }
 bool Config::Save(){
-    mkdir("/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/mods", 0777);
-    mkdir("/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/mods/configs", 0777);
+    mkdir("/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs", 0777);
+    mkdir("/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs/LuJimPassengerDriver", 0777);
     std::ofstream f(Path());
     if(!f.good()) return false;
     f << "[LuJimPassengerDriver]\n";
