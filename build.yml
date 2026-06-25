@@ -1,0 +1,40 @@
+name: Build LuJim Passenger Driver AML
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Android NDK r25c
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r25c
+          add-to-path: true
+
+      - name: Prepare Android mobile upload layout
+        run: |
+          mkdir -p jni
+          cp Android.mk jni/Android.mk
+          cp Application.mk jni/Application.mk
+          cp main.cpp jni/main.cpp
+
+      - name: Build armeabi-v7a
+        run: ndk-build NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni/Android.mk NDK_APPLICATION_MK=jni/Application.mk
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p mods
+          cp libs/armeabi-v7a/libLuJimPassengerDriverAML.so mods/libLuJimPassengerDriverAML.so
+
+      - name: Upload lib artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LuJimPassengerDriverAML_mods
+          path: mods/libLuJimPassengerDriverAML.so
