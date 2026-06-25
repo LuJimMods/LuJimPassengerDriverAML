@@ -1,56 +1,68 @@
+#include <mod/amlmod.h>
+#include <mod/logger.h>
+#include <mod/config.h>
+
 #include "Log.h"
 #include "Config.h"
 #include "PassengerDriver.h"
+#include "GameSymbols.h"
 
-#include "mod/amlmod.h"
-
-// Informações oficiais do plugin para o AML.
-// Esses dados são usados para o mod aparecer na lista de mods carregados.
-MYMOD(
-    net.lujim.passengerdriver,
-    LuJim Passenger Driver,
-    1.0.3,
-    LuJim Mods
-)
-
-// Garante que o AML só tente carregar este plugin no GTA SA Android.
+// Mesmo padrão de registro AML usado pelo GiroflexVSL.
+// MYMODCFG cria: modinfo, aml e cfg.
+MYMODCFG(net.lujim.passengerdriver, LuJimPassengerDriver, 1.0.4, LuJimMods)
 NEEDGAME(com.rockstargames.gtasa)
 
-static bool g_LPDInitialized = false;
+static bool g_initialized = false;
+static bool g_allModsLoaded = false;
 
-static void LPD_SafeInit()
+extern "C" void OnModPreLoad()
 {
-    if (g_LPDInitialized) return;
-    g_LPDInitialized = true;
+    if(logger)
+    {
+        logger->SetTag("LuJimPassengerDriver");
+        logger->Info("[AML] OnModPreLoad chamado");
+    }
 
-    Config::Load();
-    LPD_Log("[AML] LuJim Passenger Driver v1.0.3 carregado pelo AML");
-    LPD_Log("[AML] Config path: /storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs/LuJimPassengerDriver/LuJimPassengerDriver.ini");
+    LPD_Log("[AML] OnModPreLoad - LuJim Passenger Driver");
+}
 
-    // Inicialização segura: não instala hooks perigosos.
-    // A lógica experimental só roda quando ExperimentalHooks=1 no INI.
+extern "C" void OnModLoad()
+{
+    if(logger)
+    {
+        logger->SetTag("LuJimPassengerDriver");
+        logger->Info("[AML] OnModLoad chamado");
+    }
+
+    LPD_Log("[AML] OnModLoad - LuJim Passenger Driver carregado");
+
+    if(g_initialized)
+    {
+        LPD_Log("[AML] OnModLoad ignorado: ja inicializado");
+        return;
+    }
+
+    g_initialized = true;
+
+    // Primeiro teste seguro: apenas carrega/cria INI e log.
+    // Hooks perigosos continuam controlados por ExperimentalHooks no INI.
+    LPDSettings::EnsureDefault();
+    LPDSettings::Load();
+
+    InitGameSymbols();
     PassengerDriver::Init();
+
+    LPD_Log("[AML] Inicializacao segura concluida");
 }
 
-ON_MOD_PRELOAD()
+extern "C" void OnAllModsLoaded()
 {
-    // Não inicializar lógica aqui. Alguns sistemas do jogo ainda não estão prontos.
-}
+    g_allModsLoaded = true;
 
-ON_MOD_LOAD()
-{
-    // Inicialização principal do plugin.
-    LPD_SafeInit();
-}
+    if(logger)
+    {
+        logger->Info("[AML] OnAllModsLoaded chamado");
+    }
 
-ON_ALL_MODS_LOAD()
-{
-    // Segunda chance de inicialização caso o AML carregue interfaces depois.
-    LPD_SafeInit();
-    LPD_Log("[AML] OnAllModsLoaded - LuJim Passenger Driver pronto");
-}
-
-ON_MOD_UNLOAD()
-{
-    LPD_Log("[AML] OnModUnload - LuJim Passenger Driver");
+    LPD_Log("[AML] OnAllModsLoaded - LuJim Passenger Driver");
 }

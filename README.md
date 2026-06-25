@@ -39,3 +39,10 @@ O log fica no mesmo diretorio:
 ## Observacao
 
 Esta base ainda mantem os hooks perigosos protegidos por `ExperimentalHooks=0` para evitar crash enquanto a logica completa de entrada pelo passageiro e recruta motorista e implementada.
+
+
+## V1.0.4
+
+- Registro AML ajustado para o mesmo modelo do GiroflexVSL (`MYMODCFG`).
+- Adicionado `mod/logger.cpp`, `mod/config.cpp` e `mod/thirdparty/`.
+- Configuração interna renomeada para `LPDSettings` para evitar conflito com `mod/config.h`.

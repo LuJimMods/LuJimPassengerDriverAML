@@ -14,7 +14,7 @@ struct LPDConfig {
     bool enableLogs = true;
     bool experimentalHooks = false;
 };
-class Config {
+class LPDSettings {
 public:
     static LPDConfig values;
     static const char* Path();

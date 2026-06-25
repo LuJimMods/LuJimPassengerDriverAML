@@ -4,21 +4,21 @@
 #include <algorithm>
 #include <cctype>
 #include <sys/stat.h>
-LPDConfig Config::values;
+LPDConfig LPDSettings::values;
 static bool parseBool(const std::string& v){ return v=="1" || v=="true" || v=="TRUE" || v=="on" || v=="ON"; }
 static std::string trim(std::string s){
     s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char c){ return !std::isspace(c); }));
     s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char c){ return !std::isspace(c); }).base(), s.end());
     return s;
 }
-const char* Config::Path(){ return "/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs/LuJimPassengerDriver/LuJimPassengerDriver.ini"; }
-void Config::EnsureDefault(){
+const char* LPDSettings::Path(){ return "/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs/LuJimPassengerDriver/LuJimPassengerDriver.ini"; }
+void LPDSettings::EnsureDefault(){
     mkdir("/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs", 0777);
     mkdir("/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs/LuJimPassengerDriver", 0777);
     std::ifstream i(Path());
     if(!i.good()) Save();
 }
-bool Config::Load(){
+bool LPDSettings::Load(){
     EnsureDefault();
     std::ifstream f(Path());
     if(!f.good()) return false;
@@ -48,7 +48,7 @@ bool Config::Load(){
     }
     return true;
 }
-bool Config::Save(){
+bool LPDSettings::Save(){
     mkdir("/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs", 0777);
     mkdir("/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs/LuJimPassengerDriver", 0777);
     std::ofstream f(Path());
@@ -71,4 +71,4 @@ bool Config::Save(){
     f << "[Compatibility]\nIgnoreMissionVehicles=1\nIgnoreOccupiedVehicles=1\nDisableDuringMissions=1\nDisableInCutscenes=1\n";
     return true;
 }
-bool Config::SaveEnabled(bool enabled){ values.enabled = enabled; return Save(); }
+bool LPDSettings::SaveEnabled(bool enabled){ values.enabled = enabled; return Save(); }
