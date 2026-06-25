@@ -4,7 +4,6 @@
 #include <cstdio>
 #include <cstring>
 #include <cinttypes>
-#include <dlfcn.h>
 
 GameSymbols gSymbols;
 
@@ -13,7 +12,11 @@ namespace
     static uintptr_t ReadLibBase(const char* name)
     {
         FILE* f = fopen("/proc/self/maps", "r");
-        if(!f) return 0;
+        if(!f)
+        {
+            LPD_Log("[SYMBOLS] ERRO: nao foi possivel abrir /proc/self/maps");
+            return 0;
+        }
 
         char line[512];
         while(fgets(line, sizeof(line), f))
@@ -21,9 +24,11 @@ namespace
             if(strstr(line, name))
             {
                 uintptr_t start = 0;
-                sscanf(line, "%" SCNxPTR "-", &start);
-                fclose(f);
-                return start;
+                if(sscanf(line, "%" SCNxPTR "-", &start) == 1)
+                {
+                    fclose(f);
+                    return start;
+                }
             }
         }
 
@@ -31,86 +36,75 @@ namespace
         return 0;
     }
 
-    static uintptr_t ResolveByDlsym(void* handle, const char* symbol)
-    {
-        if(!symbol) return 0;
-
-        void* p = nullptr;
-
-        if(handle)
-        {
-            p = dlsym(handle, symbol);
-        }
-
-        if(!p)
-        {
-            p = dlsym(RTLD_DEFAULT, symbol);
-        }
-
-        return reinterpret_cast<uintptr_t>(p);
-    }
-
     static uintptr_t ResolveByOffset(uintptr_t base, uintptr_t offset)
     {
-        if(!base || !offset) return 0;
+        if(!base || !offset)
+        {
+            return 0;
+        }
         return base + offset;
     }
 
     static void ResolvePlayerSymbols()
     {
-        void* gtasa = dlopen("libGTASA.so", RTLD_NOW | RTLD_NOLOAD);
-        if(!gtasa)
+        if(!gSymbols.base)
         {
-            gtasa = dlopen("libGTASA.so", RTLD_NOW);
+            LPD_Log("[SYMBOLS] ERRO: base da libGTASA invalida. Nao e possivel resolver simbolos.");
+            return;
         }
 
-        gSymbols.findPlayerPed = ResolveByDlsym(gtasa, "_Z13FindPlayerPedi");
-        gSymbols.findPlayerVehicle = ResolveByDlsym(gtasa, "_Z17FindPlayerVehicleib");
-        gSymbols.vehicleIsDriver = ResolveByDlsym(gtasa, "_ZNK8CVehicle8IsDriverEPK4CPed");
-
 #if defined(__aarch64__)
-        // GTA SA Android arm64 v2.00 / DE base offsets conhecidos.
+        // libGTASA.so arm64-v8a.
+        // Confirmado via tabela de simbolos:
+        // _Z13FindPlayerPedi                  0x004EFAE0
+        // _Z17FindPlayerVehicleib            0x004EFDEC
+        // _ZNK8CVehicle8IsDriverEPK4CPed     0x006A8868
         constexpr uintptr_t kFindPlayerPedOffset = 0x004EFAE0;
         constexpr uintptr_t kFindPlayerVehicleOffset = 0x004EFDEC;
         constexpr uintptr_t kVehicleIsDriverOffset = 0x006A8868;
 #else
-        // GTA SA Android 32 bits v2.00 AML.
-        // Os offsets das funcoes Thumb ja possuem bit 1 no proprio simbolo.
+        // libGTASA.so armeabi-v7a / GTA SA Android 2.00 AML.
+        // Esses offsets ja estao com o bit Thumb quando necessario.
+        // Confirmado via tabela de simbolos:
+        // _Z13FindPlayerPedi                  0x0040B289
+        // _Z17FindPlayerVehicleib            0x0040B531
+        // _ZNK8CVehicle8IsDriverEPK4CPed     0x00584A43
         constexpr uintptr_t kFindPlayerPedOffset = 0x0040B289;
         constexpr uintptr_t kFindPlayerVehicleOffset = 0x0040B531;
         constexpr uintptr_t kVehicleIsDriverOffset = 0x00584A43;
 #endif
 
-        if(!gSymbols.findPlayerPed)
-        {
-            gSymbols.findPlayerPed = ResolveByOffset(gSymbols.base, kFindPlayerPedOffset);
-        }
+        gSymbols.findPlayerPed = ResolveByOffset(gSymbols.base, kFindPlayerPedOffset);
+        gSymbols.findPlayerVehicle = ResolveByOffset(gSymbols.base, kFindPlayerVehicleOffset);
+        gSymbols.vehicleIsDriver = ResolveByOffset(gSymbols.base, kVehicleIsDriverOffset);
 
-        if(!gSymbols.findPlayerVehicle)
-        {
-            gSymbols.findPlayerVehicle = ResolveByOffset(gSymbols.base, kFindPlayerVehicleOffset);
-        }
-
-        if(!gSymbols.vehicleIsDriver)
-        {
-            gSymbols.vehicleIsDriver = ResolveByOffset(gSymbols.base, kVehicleIsDriverOffset);
-        }
-
-        LPD_Log("[SYMBOLS] V2.3 FindPlayerPed=%p FindPlayerVehicle=%p CVehicle::IsDriver=%p",
+        LPD_Log("[SYMBOLS] V2.5.0 offsets diretos aplicados");
+        LPD_Log("[SYMBOLS] FindPlayerPed=%p offset=0x%" PRIxPTR,
                 reinterpret_cast<void*>(gSymbols.findPlayerPed),
+                kFindPlayerPedOffset);
+        LPD_Log("[SYMBOLS] FindPlayerVehicle=%p offset=0x%" PRIxPTR,
                 reinterpret_cast<void*>(gSymbols.findPlayerVehicle),
-                reinterpret_cast<void*>(gSymbols.vehicleIsDriver));
+                kFindPlayerVehicleOffset);
+        LPD_Log("[SYMBOLS] CVehicle::IsDriver=%p offset=0x%" PRIxPTR,
+                reinterpret_cast<void*>(gSymbols.vehicleIsDriver),
+                kVehicleIsDriverOffset);
 
-        if(gtasa)
+        if(gSymbols.findPlayerPed && gSymbols.findPlayerVehicle && gSymbols.vehicleIsDriver)
         {
-            dlclose(gtasa);
+            LPD_Log("[SYMBOLS] V2.5.0 simbolos do jogador/veiculo resolvidos com sucesso.");
+        }
+        else
+        {
+            LPD_Log("[SYMBOLS] AVISO: um ou mais simbolos continuam invalidos.");
         }
     }
 }
 
 void InitGameSymbols()
 {
+    gSymbols = GameSymbols{};
     gSymbols.base = ReadLibBase("libGTASA.so");
+
     LPD_Log("[SYMBOLS] libGTASA base=%p", reinterpret_cast<void*>(gSymbols.base));
 
     ResolvePlayerSymbols();
