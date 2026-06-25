@@ -1,28 +1,47 @@
-# LuJim Passenger Driver V1 Offsets
+# LuJim Passenger Driver - V1 Safe Test
 
 Autor: LuJim Mods
 
-Projeto AML para GTA SA Android 2.00. Esta versão usa os símbolos encontrados na `libGTASA.so` enviada pelo usuário para preparar os hooks reais.
+Base AML para GTA San Andreas Android 2.00 / AML 1.3.0.
 
-## Recursos incluídos
+## O que esta versão faz
 
-- GitHub Actions funcionando.
-- `libLuJimPassengerDriver.so`.
-- `mods/configs/LuJimPassengerDriver.ini`.
-- Notificações em português via log.
-- Ativação/desativação por 3 segundos preparada.
-- Mapa de offsets reais extraído da `libGTASA.so` enviada.
+- Compila pelo GitHub Actions.
+- Carrega no AML com `OnModLoad`.
+- Cria/lê `mods/configs/LuJimPassengerDriver.ini`.
+- Cria log próprio em `mods/logs/LuJimPassengerDriver.log`.
+- Possui sistema de notificações em português preparado.
+- Possui sistema de toggle por 3 segundos preparado.
 
-## Observação importante
+## Segurança
 
-A parte de colocar CJ no passageiro, recruta no motorista e transferir o controle do veículo está preparada em módulos, mas ainda fica bloqueada por segurança até testar os hooks no jogo. Isso evita crash na primeira instalação.
+`ExperimentalHooks=0` por padrão.
+
+Isso significa que os hooks perigosos de entrada em veículo, recruta e controle do carro ficam bloqueados até serem testados no jogo. Essa configuração evita crash no primeiro carregamento.
 
 ## Instalação
 
-Coloque:
+Copie:
 
 `mods/libLuJimPassengerDriver.so`
 
-E o ini em:
+para:
+
+`/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/mods/`
+
+E copie:
 
 `mods/configs/LuJimPassengerDriver.ini`
+
+para:
+
+`/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/mods/configs/`
+
+Depois abra o jogo e envie:
+
+- `aml.log`
+- `mods/logs/LuJimPassengerDriver.log`
+
+## Próxima etapa
+
+Ligar os hooks reais do botão Entrar, depois a sequência de recruta/motorista e jogador/passageiro.

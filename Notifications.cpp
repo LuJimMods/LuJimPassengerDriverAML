@@ -1,8 +1,18 @@
 #include "Notifications.h"
 #include "Config.h"
 #include "Log.h"
-void Notifications::Show(const char* text){ if(!Config::values.showNotifications) return; LPD_Log("[NOTIFY] %s", text); /* V1 experimental: log/AML. Mensagem nativa GTA será ligada no próximo hook de CHud. */ }
+#include <cstdio>
+void Notifications::Show(const char* text){
+    if(!Config::values.showNotifications) return;
+    // Build seguro: grava no log. O desenho real no HUD será ligado quando o hook de CHud estiver confirmado.
+    LPD_Log("[NOTIFICACAO] %s", text);
+}
 void Notifications::Enabled(){ Show("~g~LuJim Passenger Driver~n~~w~Modo Passageiro Motorista Ativado"); }
 void Notifications::Disabled(){ Show("~r~LuJim Passenger Driver~n~~w~Modo Passageiro Motorista Desativado"); }
 void Notifications::NoRecruit(){ Show("~y~LuJim Passenger Driver~n~~w~Nenhum recruta encontrado."); }
-void Notifications::Info(const char* text){ Show(text); }
+void Notifications::Progress(float percent, bool enabling){
+    if(!Config::values.showProgressBar) return;
+    char buf[160];
+    std::snprintf(buf, sizeof(buf), "~b~LuJim Passenger Driver~n~~w~%s %.0f%%", enabling ? "Ativando..." : "Desativando...", percent * 100.0f);
+    Show(buf);
+}
