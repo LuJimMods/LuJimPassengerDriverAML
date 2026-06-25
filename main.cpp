@@ -1,52 +1,25 @@
-#include <mod/amlmod.h>
-#include <mod/logger.h>
-
-#include "Config.h"
 #include "Log.h"
 
-// LuJim Passenger Driver - AML Loader Fix
-// Esta versão usa os headers reais do AML para o plugin aparecer corretamente
-// na lista de mods carregados. Não instala hooks, não inicia threads e não chama
-// funções internas do GTA SA. O objetivo é confirmar carregamento estável.
+#include "mod/amlmod.h"
 
-MYMOD(lujim.passengerdriver, LuJim Passenger Driver, 1.0.2, LuJim Mods)
-NEEDGAME(com.rockstargames.gtasa)
+MYMOD(
+    net.lujim.passengerdriver,
+    LuJim Passenger Driver,
+    1.0,
+    LuJim Mods
+)
 
-static bool gLoaded = false;
-
-ON_MOD_PRELOAD()
+extern "C" void OnModPreLoad()
 {
-    // Não chama Config nem funções do jogo aqui.
-    // Este callback pode rodar cedo demais para mexer em arquivos ou símbolos.
+    LPD_Log("[AML] OnModPreLoad - LuJim Passenger Driver");
 }
 
-ON_MOD_LOAD()
+extern "C" void OnModLoad()
 {
-    if (gLoaded) return;
-    gLoaded = true;
-
-    if (logger)
-    {
-        logger->SetTag("LuJimPassengerDriver");
-        logger->Info("LuJim Passenger Driver: OnModLoad chamado.");
-    }
-
-    Config::EnsureDefault();
-    Config::Load();
-
-    LPD_Log("[AML] LuJim Passenger Driver carregado com sucesso.");
-    LPD_Log("[AML] Versao: 1.0.2-loaderfix");
-    LPD_Log("[AML] Caminho do INI: %s", Config::Path());
-    LPD_Log("[AML] Caminho do LOG: /storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/configs/LuJimPassengerDriver/LuJimPassengerDriver.log");
-    LPD_Log("[AML] Hooks desativados nesta versao de teste.");
+    LPD_Log("[AML] OnModLoad - LuJim Passenger Driver carregado");
 }
 
-ON_ALL_MODS_LOAD()
+extern "C" void OnAllModsLoaded()
 {
-    if (logger)
-    {
-        logger->Info("LuJim Passenger Driver: OnAllModsLoaded chamado.");
-    }
-
-    LPD_Log("[AML] OnAllModsLoaded chamado - LuJim Passenger Driver.");
+    LPD_Log("[AML] OnAllModsLoaded - LuJim Passenger Driver");
 }
