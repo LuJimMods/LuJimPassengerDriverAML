@@ -9,6 +9,7 @@
 
 #include <mod/amlmod.h>
 #include <cstdint>
+#include <cstring>
 
 namespace
 {
@@ -45,6 +46,7 @@ namespace
     void* gLastTaskVehicleOffset10 = nullptr;
     unsigned int gLastTaskSeatOrDoorOffset14 = 0;
     unsigned int gLastTaskFlagsOffset24 = 0;
+    unsigned int gForceDoorWriteCount = 0;
 
     const uintptr_t OFF_CTaskComplexEnterCar_CreateFirstSubTask = 0x004F4C75;
     const uintptr_t OFF_CTaskComplexEnterAnyCarAsDriver_CreateFirstSubTask = 0x004FC985;
@@ -80,7 +82,7 @@ namespace
 
         if(!gSymbolsLogged)
         {
-            LPD_Log("[MONITOR] V4.1.0 simbolos: FindPlayerPed=%p FindPlayerVehicle=%p CVehicle::IsDriver=%p",
+            LPD_Log("[MONITOR] V5.0.0 simbolos: FindPlayerPed=%p FindPlayerVehicle=%p CVehicle::IsDriver=%p",
                     reinterpret_cast<void*>(gFindPlayerPed),
                     reinterpret_cast<void*>(gFindPlayerVehicle),
                     reinterpret_cast<void*>(gVehicleIsDriver));
@@ -130,7 +132,7 @@ namespace
             remoteVehicle = gFindPlayerVehicle(-1, true);
         }
 
-        LPD_Log("[TASK-DUMP] V4.1.0 %s Task=%p Ped=%p CurrentVehicle=%p CandidateVehicle=%p",
+        LPD_Log("[TASK-DUMP] V5.0.0 %s Task=%p Ped=%p CurrentVehicle=%p CandidateVehicle=%p",
                 hookName, task, ped, currentVehicle, remoteVehicle);
 
         LPD_Log("[TASK-DUMP] +00=%08x +04=%08x +08=%08x +0C=%08x",
@@ -159,7 +161,7 @@ namespace
         gLastTaskSeatOrDoorOffset14 = seatOrDoorOffset14;
         gLastTaskFlagsOffset24 = valueOffset24;
 
-        LPD_Log("[TASK-CHECK] V4.1.0 campos principais: +0x10(vehicle)=%p +0x14(seat/door?)=%u +0x18=%08x +0x24=%08x",
+        LPD_Log("[TASK-CHECK] V5.0.0 campos principais: +0x10(vehicle)=%p +0x14(seat/door?)=%u +0x18=%08x +0x24=%08x",
                 vehicleFromOffset10,
                 seatOrDoorOffset14,
                 valueOffset18,
@@ -167,7 +169,7 @@ namespace
 
         if(currentVehicle || remoteVehicle || gLastTaskVehicleOffset10)
         {
-            LPD_Log("[TASK-CHECK] V4.1.0 comparacao: task+0x10=%p current=%p candidate=%p matchCurrent=%d matchCandidate=%d",
+            LPD_Log("[TASK-CHECK] V5.0.0 comparacao: task+0x10=%p current=%p candidate=%p matchCurrent=%d matchCandidate=%d",
                     gLastTaskVehicleOffset10,
                     currentVehicle,
                     remoteVehicle,
@@ -177,7 +179,63 @@ namespace
 
         if(LPDSettings::values.enabled)
         {
-            LPD_Log("[FORCE-PLAN] Enabled=1. V4.1.0 ainda nao altera memoria; usando dump para achar offset de veiculo/porta com seguranca.");
+            LPD_Log("[FORCE-PLAN] Enabled=1. V5.0.0 testa escrita segura em +0x14 para tentar passageiro.");
+        }
+    }
+
+
+    void TryForcePassengerDoorField(const char* hookName, void* task, void* ped)
+    {
+        if(!LPDSettings::values.enabled) return;
+        if(!task) return;
+
+        // Primeiro teste real: somente mexer na task simples de abrir porta.
+        // Nos dumps anteriores, +0x10 = CVehicle e +0x14 alternou entre 8 e 10.
+        // Aqui forçamos +0x14 para 8 para testar se esse valor corresponde ao lado/banco do passageiro.
+        if(!hookName || std::strstr(hookName, "CTaskSimpleCarOpenDoorFromOutside::ProcessPed") == nullptr)
+        {
+            return;
+        }
+
+        uintptr_t* w = reinterpret_cast<uintptr_t*>(task);
+        void* vehicleFromTask = (void*)w[4];
+
+        if(!LooksLikeValidPtr(w[4]))
+        {
+            if((gForceDoorWriteCount % 20) == 0)
+            {
+                LPD_Log("[PASSENGER-FORCE] Ignorado: task+0x10 nao parece CVehicle. Task=%p Ped=%p +0x10=%p", task, ped, vehicleFromTask);
+            }
+            return;
+        }
+
+        unsigned int before = (unsigned int)w[5];
+        unsigned int after = 8;
+
+        // Evita escrever em valores totalmente inesperados nesta primeira tentativa.
+        if(before != 8 && before != 10)
+        {
+            if((gForceDoorWriteCount % 20) == 0)
+            {
+                LPD_Log("[PASSENGER-FORCE] Ignorado: +0x14 inesperado. Task=%p Vehicle=%p +0x14=%u", task, vehicleFromTask, before);
+            }
+            return;
+        }
+
+        w[5] = after;
+        ++gForceDoorWriteCount;
+        gLastTaskVehicleOffset10 = vehicleFromTask;
+        gLastTaskSeatOrDoorOffset14 = after;
+
+        if(gForceDoorWriteCount <= 20 || (gForceDoorWriteCount % 20) == 0 || before != after)
+        {
+            LPD_Log("[PASSENGER-FORCE] V5.0.0 escrito +0x14: before=%u after=%u Task=%p Ped=%p Vehicle=%p Count=%u",
+                    before,
+                    after,
+                    task,
+                    ped,
+                    vehicleFromTask,
+                    gForceDoorWriteCount);
         }
     }
 
@@ -185,13 +243,15 @@ namespace
     {
         ++gHookEventCount;
 
+        TryForcePassengerDoorField(hookName, task, ped);
+
         bool importantChange = (ped != gLastHookPed) || (task != gLastHookThis);
         gLastHookPed = ped;
         gLastHookThis = task;
 
         if(importantChange || (gHookEventCount % 20) == 1)
         {
-            LPD_Log("[HOOK-ENTRY] V4.1.0 %s chamado. Task=%p Ped=%p Enabled=%d ExperimentalHooks=%d Count=%u",
+            LPD_Log("[HOOK-ENTRY] V5.0.0 %s chamado. Task=%p Ped=%p Enabled=%d ExperimentalHooks=%d Count=%u",
                     hookName,
                     task,
                     ped,
@@ -226,18 +286,18 @@ namespace
         gHooksTried = true;
 
 #ifndef AML32
-        LPD_Log("[HOOK] V4.1.0 hooks de entrada ignorados: build nao e ARM32.");
+        LPD_Log("[HOOK] V5.0.0 hooks de entrada ignorados: build nao e ARM32.");
         return;
 #else
         if(!aml)
         {
-            LPD_Log("[HOOK] V4.1.0 falha: AML interface nula.");
+            LPD_Log("[HOOK] V5.0.0 falha: AML interface nula.");
             return;
         }
 
         if(!gSymbols.base)
         {
-            LPD_Log("[HOOK] V4.1.0 falha: base da libGTASA ainda nao encontrada.");
+            LPD_Log("[HOOK] V5.0.0 falha: base da libGTASA ainda nao encontrada.");
             return;
         }
 
@@ -255,7 +315,7 @@ namespace
 
         gHooksInstalled = ok1 || ok2 || ok3;
 
-        LPD_Log("[HOOK] V4.1.0 Entry hooks instalados. ok1=%d ok2=%d ok3=%d base=0x%08x",
+        LPD_Log("[HOOK] V5.0.0 Entry hooks instalados. ok1=%d ok2=%d ok3=%d base=0x%08x",
                 ok1 ? 1 : 0,
                 ok2 ? 1 : 0,
                 ok3 ? 1 : 0,
@@ -285,7 +345,7 @@ namespace
                     ped,
                     vehicle,
                     gPassengerStableTicks);
-            LPD_Log("[PASSENGER] V4.1.0 apenas detecta. Nao move jogador e nao controla recruta.");
+            LPD_Log("[PASSENGER] V5.0.0 apenas detecta. Nao move jogador e nao controla recruta.");
             gPassengerModeLogged = true;
         }
     }
@@ -346,13 +406,13 @@ namespace
 
         if(candidateVehicle != gLastCandidateVehicle)
         {
-            LPD_Log("[TARGET] V4.1.0 FindPlayerVehicle(includeRemote=true) mudou. CandidateVehicle=%p CurrentVehicle=%p",
+            LPD_Log("[TARGET] V5.0.0 FindPlayerVehicle(includeRemote=true) mudou. CandidateVehicle=%p CurrentVehicle=%p",
                     candidateVehicle,
                     vehicle);
 
             if(gLastTaskVehicleOffset10 || candidateVehicle || vehicle)
             {
-                LPD_Log("[TARGET-CHECK] V4.1.0 ultimo task+0x10=%p candidate=%p current=%p matchCandidate=%d matchCurrent=%d +0x14=%u +0x24=%08x",
+                LPD_Log("[TARGET-CHECK] V5.0.0 ultimo task+0x10=%p candidate=%p current=%p matchCandidate=%d matchCurrent=%d +0x14=%u +0x24=%08x",
                         gLastTaskVehicleOffset10,
                         candidateVehicle,
                         vehicle,
@@ -417,7 +477,7 @@ namespace
         ++gMonitorTick;
         if((gMonitorTick % 40) == 0)
         {
-            LPD_Log("[MONITOR] V4.1.0 ativo. Ped=%p Vehicle=%p Candidate=%p Seat=%s HookEvents=%u HooksInstalled=%d Enabled=%d ExperimentalHooks=%d",
+            LPD_Log("[MONITOR] V5.0.0 ativo. Ped=%p Vehicle=%p Candidate=%p Seat=%s HookEvents=%u HooksInstalled=%d Enabled=%d ExperimentalHooks=%d ForceWrites=%u",
                     ped,
                     vehicle,
                     candidateVehicle,
@@ -425,7 +485,8 @@ namespace
                     gHookEventCount,
                     gHooksInstalled ? 1 : 0,
                     LPDSettings::values.enabled ? 1 : 0,
-                    LPDSettings::values.experimentalHooks ? 1 : 0);
+                    LPDSettings::values.experimentalHooks ? 1 : 0,
+                    gForceDoorWriteCount);
         }
     }
 }
@@ -442,7 +503,7 @@ void PassengerDriver::Init()
     LPD_Log("[INIT] Modo salvo no INI: %s.",
             LPDSettings::values.enabled ? "ativado" : "desativado");
 
-    LPD_Log("[INIT] V4.1.0: confirma +0x10 como veiculo e rastreia campo de porta/assento antes de forcar passageiro.");
+    LPD_Log("[INIT] V5.0.0: primeiro teste real: força campo +0x14 da task de porta para tentar passageiro.");
     InstallEntryHooks();
 }
 
@@ -461,7 +522,7 @@ void PassengerDriver::Toggle()
 
     ResetEntryCandidate();
 
-    LPD_Log("[STATE] V4.1.0 Enabled=%d. Modo %s",
+    LPD_Log("[STATE] V5.0.0 Enabled=%d. Modo %s",
             LPDSettings::values.enabled ? 1 : 0,
             LPDSettings::values.enabled ? "ativado" : "desativado");
 }
@@ -482,6 +543,6 @@ void PassengerDriver::Update(float dtMs)
         return;
     }
 
-    // V4.1.0: confirma os campos da task.
+    // V5.0.0: confirma os campos da task.
     // Ainda nao escreve memoria; proxima versao pode testar troca se +0x10 e +0x14 ficarem consistentes.
 }
