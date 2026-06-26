@@ -77,7 +77,7 @@ namespace
 
         if(!gSymbolsLogged)
         {
-            LPD_Log("[MONITOR] V3.1.0 simbolos: FindPlayerPed=%p FindPlayerVehicle=%p CVehicle::IsDriver=%p",
+            LPD_Log("[MONITOR] V4.0.0 simbolos: FindPlayerPed=%p FindPlayerVehicle=%p CVehicle::IsDriver=%p",
                     reinterpret_cast<void*>(gFindPlayerPed),
                     reinterpret_cast<void*>(gFindPlayerVehicle),
                     reinterpret_cast<void*>(gVehicleIsDriver));
@@ -105,6 +105,54 @@ namespace
         gForcedDriverLogged = false;
     }
 
+    bool LooksLikeValidPtr(uintptr_t value)
+    {
+        return value >= 0x90000000u && value <= 0xBFFFFFFFu;
+    }
+
+    void DumpTaskWords(const char* hookName, void* task, void* ped)
+    {
+        if(!task) return;
+
+        // Dump controlado: apenas nos primeiros eventos importantes para nao lotar o log.
+        if(gHookEventCount > 12 && (gHookEventCount % 40) != 1) return;
+
+        uintptr_t* w = reinterpret_cast<uintptr_t*>(task);
+
+        void* currentVehicle = nullptr;
+        void* remoteVehicle = nullptr;
+        if(gFindPlayerVehicle)
+        {
+            currentVehicle = gFindPlayerVehicle(-1, false);
+            remoteVehicle = gFindPlayerVehicle(-1, true);
+        }
+
+        LPD_Log("[TASK-DUMP] V4.0.0 %s Task=%p Ped=%p CurrentVehicle=%p CandidateVehicle=%p",
+                hookName, task, ped, currentVehicle, remoteVehicle);
+
+        LPD_Log("[TASK-DUMP] +00=%08x +04=%08x +08=%08x +0C=%08x",
+                (unsigned int)w[0], (unsigned int)w[1], (unsigned int)w[2], (unsigned int)w[3]);
+        LPD_Log("[TASK-DUMP] +10=%08x +14=%08x +18=%08x +1C=%08x",
+                (unsigned int)w[4], (unsigned int)w[5], (unsigned int)w[6], (unsigned int)w[7]);
+        LPD_Log("[TASK-DUMP] +20=%08x +24=%08x +28=%08x +2C=%08x",
+                (unsigned int)w[8], (unsigned int)w[9], (unsigned int)w[10], (unsigned int)w[11]);
+        LPD_Log("[TASK-DUMP] +30=%08x +34=%08x +38=%08x +3C=%08x",
+                (unsigned int)w[12], (unsigned int)w[13], (unsigned int)w[14], (unsigned int)w[15]);
+
+        for(int i = 0; i < 16; ++i)
+        {
+            if(LooksLikeValidPtr(w[i]))
+            {
+                LPD_Log("[TASK-FIELD] Possivel ponteiro em +0x%02X = %p", i * 4, (void*)w[i]);
+            }
+        }
+
+        if(LPDSettings::values.enabled)
+        {
+            LPD_Log("[FORCE-PLAN] Enabled=1. V4.0.0 ainda nao altera memoria; usando dump para achar offset de veiculo/porta com seguranca.");
+        }
+    }
+
     void LogEntryHook(const char* hookName, void* task, void* ped)
     {
         ++gHookEventCount;
@@ -115,13 +163,14 @@ namespace
 
         if(importantChange || (gHookEventCount % 20) == 1)
         {
-            LPD_Log("[HOOK-ENTRY] V3.1.0 %s chamado. Task=%p Ped=%p Enabled=%d ExperimentalHooks=%d Count=%u",
+            LPD_Log("[HOOK-ENTRY] V4.0.0 %s chamado. Task=%p Ped=%p Enabled=%d ExperimentalHooks=%d Count=%u",
                     hookName,
                     task,
                     ped,
                     LPDSettings::values.enabled ? 1 : 0,
                     LPDSettings::values.experimentalHooks ? 1 : 0,
                     gHookEventCount);
+            DumpTaskWords(hookName, task, ped);
         }
     }
 
@@ -149,18 +198,18 @@ namespace
         gHooksTried = true;
 
 #ifndef AML32
-        LPD_Log("[HOOK] V3.1.0 hooks de entrada ignorados: build nao e ARM32.");
+        LPD_Log("[HOOK] V4.0.0 hooks de entrada ignorados: build nao e ARM32.");
         return;
 #else
         if(!aml)
         {
-            LPD_Log("[HOOK] V3.1.0 falha: AML interface nula.");
+            LPD_Log("[HOOK] V4.0.0 falha: AML interface nula.");
             return;
         }
 
         if(!gSymbols.base)
         {
-            LPD_Log("[HOOK] V3.1.0 falha: base da libGTASA ainda nao encontrada.");
+            LPD_Log("[HOOK] V4.0.0 falha: base da libGTASA ainda nao encontrada.");
             return;
         }
 
@@ -178,7 +227,7 @@ namespace
 
         gHooksInstalled = ok1 || ok2 || ok3;
 
-        LPD_Log("[HOOK] V3.1.0 Entry hooks instalados. ok1=%d ok2=%d ok3=%d base=0x%08x",
+        LPD_Log("[HOOK] V4.0.0 Entry hooks instalados. ok1=%d ok2=%d ok3=%d base=0x%08x",
                 ok1 ? 1 : 0,
                 ok2 ? 1 : 0,
                 ok3 ? 1 : 0,
@@ -208,7 +257,7 @@ namespace
                     ped,
                     vehicle,
                     gPassengerStableTicks);
-            LPD_Log("[PASSENGER] V3.1.0 apenas detecta. Nao move jogador e nao controla recruta.");
+            LPD_Log("[PASSENGER] V4.0.0 apenas detecta. Nao move jogador e nao controla recruta.");
             gPassengerModeLogged = true;
         }
     }
@@ -269,7 +318,7 @@ namespace
 
         if(candidateVehicle != gLastCandidateVehicle)
         {
-            LPD_Log("[TARGET] V3.1.0 FindPlayerVehicle(includeRemote=true) mudou. CandidateVehicle=%p CurrentVehicle=%p",
+            LPD_Log("[TARGET] V4.0.0 FindPlayerVehicle(includeRemote=true) mudou. CandidateVehicle=%p CurrentVehicle=%p",
                     candidateVehicle,
                     vehicle);
             gLastCandidateVehicle = candidateVehicle;
@@ -327,7 +376,7 @@ namespace
         ++gMonitorTick;
         if((gMonitorTick % 40) == 0)
         {
-            LPD_Log("[MONITOR] V3.1.0 ativo. Ped=%p Vehicle=%p Candidate=%p Seat=%s HookEvents=%u HooksInstalled=%d Enabled=%d ExperimentalHooks=%d",
+            LPD_Log("[MONITOR] V4.0.0 ativo. Ped=%p Vehicle=%p Candidate=%p Seat=%s HookEvents=%u HooksInstalled=%d Enabled=%d ExperimentalHooks=%d",
                     ped,
                     vehicle,
                     candidateVehicle,
@@ -352,7 +401,7 @@ void PassengerDriver::Init()
     LPD_Log("[INIT] Modo salvo no INI: %s.",
             LPDSettings::values.enabled ? "ativado" : "desativado");
 
-    LPD_Log("[INIT] V3.1.0: hook detector de entrada no veiculo. Nao move jogador ainda.");
+    LPD_Log("[INIT] V4.0.0: dump seguro da task de entrada. Identifica campos antes de forcar passageiro.");
     InstallEntryHooks();
 }
 
@@ -371,7 +420,7 @@ void PassengerDriver::Toggle()
 
     ResetEntryCandidate();
 
-    LPD_Log("[STATE] V3.1.0 Enabled=%d. Modo %s",
+    LPD_Log("[STATE] V4.0.0 Enabled=%d. Modo %s",
             LPDSettings::values.enabled ? 1 : 0,
             LPDSettings::values.enabled ? "ativado" : "desativado");
 }
@@ -392,6 +441,6 @@ void PassengerDriver::Update(float dtMs)
         return;
     }
 
-    // V3.1.0: somente detecta as rotinas de entrada.
-    // A troca de banco ainda nao e aplicada nesta versao.
+    // V4.0.0: dumpa as tasks de entrada para descobrir offsets seguros.
+    // A troca de banco ainda nao e aplicada nesta versao para evitar crash.
 }
