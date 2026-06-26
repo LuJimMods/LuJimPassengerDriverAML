@@ -1,29 +1,92 @@
 #include "Input.h"
-#include "Config.h"
 #include "Log.h"
-#include "Notifications.h"
-bool Input::toggleRequest=false;
-bool Input::lockedUntilRelease=false;
-bool Input::fakePressed=false;
-float Input::holdMs=0.0f;
-static bool IsEnterVehicleButtonPressed(){
-    // Seguro: ainda sem hook no CPad/TouchInterface.
-    // Retorna falso para evitar crash até confirmar o offset do botão Entrar na libGTASA do usuário.
+
+bool Input::toggleRequest = false;
+bool Input::lockedUntilRelease = false;
+bool Input::fakePressed = false;
+float Input::holdMs = 0.0f;
+bool Input::lastPressed = false;
+
+static constexpr float HOLD_REQUIRED_MS = 3000.0f;
+
+static bool ReadEnterExitButton()
+{
+    /*
+        V3.0:
+        Por enquanto mantemos leitura segura.
+        A leitura real do botão do GTA será ligada depois que confirmarmos
+        o endereço correto do controle mobile.
+
+        fakePressed existe para teste interno/debug.
+    */
     return false;
 }
-void Input::DebugSetPressed(bool p){ fakePressed=p; }
-float Input::HoldPercent(){ return LPDSettings::values.holdTimeMs > 0 ? holdMs / (float)LPDSettings::values.holdTimeMs : 0.0f; }
-void Input::Update(float dtMs){
-    bool pressed = fakePressed || IsEnterVehicleButtonPressed();
-    if(!pressed){ holdMs=0; lockedUntilRelease=false; return; }
-    if(lockedUntilRelease) return;
-    holdMs += dtMs;
-    if(LPDSettings::values.showProgressBar) Notifications::Progress(HoldPercent(), !LPDSettings::values.enabled);
-    if(holdMs >= LPDSettings::values.holdTimeMs){
-        toggleRequest = true;
-        lockedUntilRelease = true;
-        holdMs = 0;
-        LPD_Log("[INPUT] Hold completo: toggle solicitado");
+
+void Input::Update(float dtMs)
+{
+    bool pressed = fakePressed || ReadEnterExitButton();
+
+    if (pressed && !lastPressed)
+    {
+        LPD_Log("[INPUT] Botao Entrar/Sair pressionado");
     }
+
+    if (!pressed && lastPressed)
+    {
+        LPD_Log("[INPUT] Botao Entrar/Sair solto");
+        holdMs = 0.0f;
+        lockedUntilRelease = false;
+    }
+
+    if (pressed && !lockedUntilRelease)
+    {
+        holdMs += dtMs;
+
+        if (holdMs >= 1000.0f && holdMs - dtMs < 1000.0f)
+            LPD_Log("[INPUT] Segurando botao: 1000ms");
+
+        if (holdMs >= 2000.0f && holdMs - dtMs < 2000.0f)
+            LPD_Log("[INPUT] Segurando botao: 2000ms");
+
+        if (holdMs >= HOLD_REQUIRED_MS)
+        {
+            toggleRequest = true;
+            lockedUntilRelease = true;
+            LPD_Log("[INPUT] Segurando botao: 3000ms - alternar modo solicitado");
+        }
+    }
+
+    lastPressed = pressed;
 }
-bool Input::ConsumeToggleRequest(){ if(!toggleRequest) return false; toggleRequest=false; return true; }
+
+bool Input::ConsumeToggleRequest()
+{
+    if (!toggleRequest)
+        return false;
+
+    toggleRequest = false;
+    return true;
+}
+
+void Input::DebugSetPressed(bool pressed)
+{
+    fakePressed = pressed;
+}
+
+float Input::HoldPercent()
+{
+    float percent = holdMs / HOLD_REQUIRED_MS;
+
+    if (percent < 0.0f)
+        percent = 0.0f;
+
+    if (percent > 1.0f)
+        percent = 1.0f;
+
+    return percent;
+}
+
+bool Input::IsPressedNow()
+{
+    return fakePressed || ReadEnterExitButton();
+}
