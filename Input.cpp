@@ -13,12 +13,14 @@ float Input::holdMs = 0.0f;
 bool Input::lastPressed = false;
 
 static constexpr float HOLD_REQUIRED_MS = 3000.0f;
-static constexpr uint16_t KEY_ENTER_EXIT_VEHICLE = 15;
 
 using GetPadStateFn = int (*)(uint16_t player, uint16_t key);
 
 static GetPadStateFn gGetPadState = nullptr;
 static bool gTriedResolve = false;
+static int gDetectedKey = -1;
+static int gLastLoggedPressedKey = -1;
+static int gScanLoop = 0;
 
 static uintptr_t FindLibGTASABase()
 {
@@ -60,7 +62,7 @@ static void ResolveGetPadState()
     uintptr_t base = FindLibGTASABase();
     if (base)
     {
-        gGetPadState = (GetPadStateFn)(base + 0x34d78d);
+        gGetPadState = (GetPadStateFn)(base + 0x34D78D);
         LPD_Log("[INPUT] CRunningScript::GetPadState resolvido via offset: %p base=0x%x", (void*)gGetPadState, (unsigned int)base);
     }
     else
@@ -69,15 +71,60 @@ static void ResolveGetPadState()
     }
 }
 
-static bool ReadEnterExitButton()
+static int ScanPressedKey()
 {
     ResolveGetPadState();
 
     if (!gGetPadState)
-        return false;
+        return -1;
 
-    int state = gGetPadState(0, KEY_ENTER_EXIT_VEHICLE);
-    return state != 0;
+    for (int key = 0; key <= 255; ++key)
+    {
+        int state = gGetPadState(0, (uint16_t)key);
+        if (state != 0)
+        {
+            return key;
+        }
+    }
+
+    return -1;
+}
+
+static bool ReadEnterExitButton()
+{
+    int pressedKey = ScanPressedKey();
+
+    gScanLoop++;
+
+    if (pressedKey >= 0)
+    {
+        if (pressedKey != gLastLoggedPressedKey)
+        {
+            LPD_Log("[INPUT] Tecla/comando detectado pelo GetPadState: key=%d", pressedKey);
+            gLastLoggedPressedKey = pressedKey;
+        }
+
+        if (gDetectedKey < 0)
+        {
+            gDetectedKey = pressedKey;
+            LPD_Log("[INPUT] Key candidata salva para Entrar/Sair: key=%d", gDetectedKey);
+        }
+    }
+    else
+    {
+        gLastLoggedPressedKey = -1;
+    }
+
+    if (gScanLoop >= 20)
+    {
+        gScanLoop = 0;
+        LPD_Log("[INPUT] Scanner ativo. Key candidata=%d Ultima key pressionada=%d", gDetectedKey, pressedKey);
+    }
+
+    if (gDetectedKey >= 0 && pressedKey == gDetectedKey)
+        return true;
+
+    return false;
 }
 
 void Input::Update(float dtMs)
@@ -86,12 +133,12 @@ void Input::Update(float dtMs)
 
     if (pressed && !lastPressed)
     {
-        LPD_Log("[INPUT] Key15 Entrar/Sair pressionada");
+        LPD_Log("[INPUT] Botao candidato Entrar/Sair pressionado");
     }
 
     if (!pressed && lastPressed)
     {
-        LPD_Log("[INPUT] Key15 Entrar/Sair solta");
+        LPD_Log("[INPUT] Botao candidato Entrar/Sair solto");
         holdMs = 0.0f;
         lockedUntilRelease = false;
     }
@@ -101,16 +148,16 @@ void Input::Update(float dtMs)
         holdMs += dtMs;
 
         if (holdMs >= 1000.0f && holdMs - dtMs < 1000.0f)
-            LPD_Log("[INPUT] Segurando Key15: 1000ms");
+            LPD_Log("[INPUT] Segurando botao candidato: 1000ms");
 
         if (holdMs >= 2000.0f && holdMs - dtMs < 2000.0f)
-            LPD_Log("[INPUT] Segurando Key15: 2000ms");
+            LPD_Log("[INPUT] Segurando botao candidato: 2000ms");
 
         if (holdMs >= HOLD_REQUIRED_MS)
         {
             toggleRequest = true;
             lockedUntilRelease = true;
-            LPD_Log("[INPUT] Segurando Key15: 3000ms - alternar modo solicitado");
+            LPD_Log("[INPUT] Segurando botao candidato: 3000ms - alternar modo solicitado");
         }
     }
 
