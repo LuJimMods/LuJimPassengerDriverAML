@@ -20,6 +20,7 @@ namespace
 
     void* gLastPed = nullptr;
     void* gLastVehicle = nullptr;
+    void* gLastCandidateVehicle = nullptr;
     void* gLastPassengerVehicle = nullptr;
 
     int gLastSeatState = -999;
@@ -28,6 +29,10 @@ namespace
     bool gPlayerWasKnown = false;
     bool gVehicleWasKnown = false;
     bool gPassengerModeLogged = false;
+    bool gEntryCandidateLogged = false;
+    bool gEntryCandidateActive = false;
+    void* gEntryCandidateVehicle = nullptr;
+    int gEntryCandidateTicks = 0;
 
     unsigned int gMonitorTick = 0;
 
@@ -54,7 +59,7 @@ namespace
 
         if(!gSymbolsLogged)
         {
-            LPD_Log("[MONITOR] V2.6.0 simbolos: FindPlayerPed=%p FindPlayerVehicle=%p CVehicle::IsDriver=%p",
+            LPD_Log("[MONITOR] V2.8.0 simbolos: FindPlayerPed=%p FindPlayerVehicle=%p CVehicle::IsDriver=%p",
                     reinterpret_cast<void*>(gFindPlayerPed),
                     reinterpret_cast<void*>(gFindPlayerVehicle),
                     reinterpret_cast<void*>(gVehicleIsDriver));
@@ -66,10 +71,56 @@ namespace
     {
         gVehicleWasKnown = false;
         gLastVehicle = nullptr;
+        gLastCandidateVehicle = nullptr;
         gLastSeatState = 0;
         gPassengerStableTicks = 0;
         gLastPassengerVehicle = nullptr;
         gPassengerModeLogged = false;
+    }
+
+    void ResetEntryCandidate()
+    {
+        gEntryCandidateActive = false;
+        gEntryCandidateVehicle = nullptr;
+        gEntryCandidateTicks = 0;
+        gEntryCandidateLogged = false;
+    }
+
+    void LogEntryCandidate(void* ped, void* currentVehicle, void* candidateVehicle)
+    {
+        if(!LPDSettings::values.enabled)
+        {
+            ResetEntryCandidate();
+            return;
+        }
+
+        if(!candidateVehicle || candidateVehicle == currentVehicle)
+        {
+            ResetEntryCandidate();
+            return;
+        }
+
+        if(candidateVehicle != gEntryCandidateVehicle)
+        {
+            gEntryCandidateVehicle = candidateVehicle;
+            gEntryCandidateTicks = 0;
+            gEntryCandidateLogged = false;
+            gEntryCandidateActive = true;
+        }
+
+        ++gEntryCandidateTicks;
+
+        if(!gEntryCandidateLogged)
+        {
+            LPD_Log("[ENTRY] V2.8.0 possivel tentativa de entrar em veiculo detectada. Ped=%p TargetVehicle=%p CurrentVehicle=%p Enabled=1", ped, candidateVehicle, currentVehicle);
+            LPD_Log("[ENTRY] V2.8.0 modo ativado pelo botao de 3 segundos. Ainda nao move jogador; apenas registra alvo de entrada.");
+            gEntryCandidateLogged = true;
+        }
+
+        if((gEntryCandidateTicks % 20) == 0)
+        {
+            LPD_Log("[ENTRY] V2.8.0 candidato mantido por %d ticks. TargetVehicle=%p CurrentVehicle=%p", gEntryCandidateTicks, candidateVehicle, currentVehicle);
+        }
     }
 
     void LogPassengerDetection(void* ped, void* vehicle)
@@ -89,7 +140,7 @@ namespace
                     ped,
                     vehicle,
                     gPassengerStableTicks);
-            LPD_Log("[PASSENGER] V2.6.0 apenas detecta. Nao move jogador e nao controla recruta.");
+            LPD_Log("[PASSENGER] V2.8.0 apenas detecta. Nao move jogador e nao controla recruta.");
             gPassengerModeLogged = true;
         }
     }
@@ -120,6 +171,7 @@ namespace
             gPlayerWasKnown = false;
             gLastPed = nullptr;
             ResetVehicleState();
+            ResetEntryCandidate();
             return;
         }
 
@@ -131,9 +183,13 @@ namespace
         }
 
         void* vehicle = nullptr;
+        void* candidateVehicle = nullptr;
         if(gFindPlayerVehicle)
         {
+            // false = veiculo atual do jogador.
+            // true  = tentativa segura de pegar veiculo ligado ao jogador/entrada, se a versao do GTA disponibilizar.
             vehicle = gFindPlayerVehicle(-1, false);
+            candidateVehicle = gFindPlayerVehicle(-1, true);
         }
         else
         {
@@ -144,6 +200,19 @@ namespace
                 warnedVehicleSymbol = true;
             }
         }
+
+        if(candidateVehicle != gLastCandidateVehicle)
+        {
+            LPD_Log("[TARGET] V2.8.0 FindPlayerVehicle(includeRemote=true) mudou. CandidateVehicle=%p CurrentVehicle=%p",
+                    candidateVehicle,
+                    vehicle);
+            gLastCandidateVehicle = candidateVehicle;
+        }
+
+        // V2.8.0: quando o modo esta ativado pelo botao de 3 segundos,
+        // o mod observa o veiculo candidato de entrada.
+        // Nesta versao ele apenas registra no log, sem mover o jogador.
+        LogEntryCandidate(ped, vehicle, candidateVehicle);
 
         int seatState = 0;
         if(vehicle)
@@ -168,6 +237,14 @@ namespace
             if(vehicle)
             {
                 LPD_Log("[PLAYER] Dentro de veiculo. Vehicle=%p Seat=%s", vehicle, SeatName(seatState));
+                if(gEntryCandidateActive)
+                {
+                    LPD_Log("[ENTRY] V2.8.0 entrada concluida apos candidato. Candidate=%p FinalVehicle=%p FinalSeat=%s",
+                            gEntryCandidateVehicle,
+                            vehicle,
+                            SeatName(seatState));
+                    ResetEntryCandidate();
+                }
                 gVehicleWasKnown = true;
             }
             else
@@ -197,11 +274,13 @@ namespace
         ++gMonitorTick;
         if((gMonitorTick % 40) == 0)
         {
-            LPD_Log("[MONITOR] V2.6.0 ativo. Ped=%p Vehicle=%p Seat=%s PassengerTicks=%d Enabled=%d ExperimentalHooks=%d",
+            LPD_Log("[MONITOR] V2.8.0 ativo. Ped=%p Vehicle=%p Candidate=%p Seat=%s PassengerTicks=%d EntryTicks=%d Enabled=%d ExperimentalHooks=%d",
                     ped,
                     vehicle,
+                    candidateVehicle,
                     SeatName(seatState),
                     gPassengerStableTicks,
+                    gEntryCandidateTicks,
                     LPDSettings::values.enabled ? 1 : 0,
                     LPDSettings::values.experimentalHooks ? 1 : 0);
         }
@@ -226,7 +305,7 @@ void PassengerDriver::Init()
         LPD_Log("[INIT] Modo salvo no INI: desativado.");
     }
 
-    LPD_Log("[INIT] V2.6.0: detecta banco de passageiro. Nao move jogador e nao controla recruta.");
+    LPD_Log("[INIT] V2.8.0: modo ativa/desativa por 3 segundos e monitora candidato de entrada. Nao move jogador e nao controla recruta.");
 }
 
 void PassengerDriver::Toggle()
@@ -242,7 +321,11 @@ void PassengerDriver::Toggle()
         Notifications::Disabled();
     }
 
-    LPD_Log("[STATE] Enabled=%d", LPDSettings::values.enabled ? 1 : 0);
+    ResetEntryCandidate();
+
+    LPD_Log("[STATE] V2.8.0 Enabled=%d. Modo por 3 segundos %s",
+            LPDSettings::values.enabled ? 1 : 0,
+            LPDSettings::values.enabled ? "ativado" : "desativado");
 }
 
 void PassengerDriver::Update(float dtMs)
@@ -254,8 +337,8 @@ void PassengerDriver::Update(float dtMs)
         Toggle();
     }
 
-    // V2.6.0: monitoramento seguro sempre ativo para teste.
-    // Ele apenas detecta motorista/passageiro e grava no log.
+    // V2.8.0: monitoramento seguro sempre ativo para teste.
+    // Ele detecta veiculo atual, possivel candidato e banco, sem mover o jogador.
     MonitorPlayerVehicle();
 
     if(!LPDSettings::values.enabled)
@@ -268,7 +351,7 @@ void PassengerDriver::Update(float dtMs)
         static bool warned = false;
         if(!warned)
         {
-            LPD_Log("[SAFE] ExperimentalHooks=0. V2.6.0 apenas detecta passageiro. Acao real bloqueada para evitar crash.");
+            LPD_Log("[SAFE] ExperimentalHooks=0. V2.8.0 apenas monitora tentativa de entrada. Acao real bloqueada para evitar crash.");
             warned = true;
         }
         return;
