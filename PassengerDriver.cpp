@@ -1,51 +1,379 @@
 #include "PassengerDriver.h"
 #include "Config.h"
-#include "GameSymbols.h"
 #include "Input.h"
-#include "Log.h"
 #include "Notifications.h"
+#include "Log.h"
+#include "Recruit.h"
+#include "Vehicle.h"
+#include "GameSymbols.h"
 
-static void* g_lastPed = nullptr;
-static void* g_lastVehicle = nullptr;
-static void* g_lastCandidateVehicle = nullptr;
-static int g_loopCount = 0;
+#include <mod/amlmod.h>
+#include <cstdint>
 
-static const char* BoolText(bool value)
+namespace
 {
-    return value ? "1" : "0";
-}
+    FindPlayerPedFn gFindPlayerPed = nullptr;
+    FindPlayerVehicleFn gFindPlayerVehicle = nullptr;
+    VehicleIsDriverFn gVehicleIsDriver = nullptr;
 
-static void SetEnabled(bool enabled)
-{
-    LPDSettings::SaveEnabled(enabled);
+    bool gSymbolsResolved = false;
+    bool gSymbolsLogged = false;
+    bool gHooksTried = false;
+    bool gHooksInstalled = false;
 
-    if(enabled)
+    void* gLastPed = nullptr;
+    void* gLastVehicle = nullptr;
+    void* gLastCandidateVehicle = nullptr;
+    void* gLastPassengerVehicle = nullptr;
+
+    int gLastSeatState = -999;
+    int gPassengerStableTicks = 0;
+
+    bool gPlayerWasKnown = false;
+    bool gVehicleWasKnown = false;
+    bool gPassengerModeLogged = false;
+    bool gEntryCandidateLogged = false;
+    bool gEntryCandidateActive = false;
+    bool gForcedDriverLogged = false;
+    void* gEntryCandidateVehicle = nullptr;
+    int gEntryCandidateTicks = 0;
+
+    unsigned int gMonitorTick = 0;
+    unsigned int gHookEventCount = 0;
+    void* gLastHookPed = nullptr;
+    void* gLastHookThis = nullptr;
+
+    const uintptr_t OFF_CTaskComplexEnterCar_CreateFirstSubTask = 0x004F4C75;
+    const uintptr_t OFF_CTaskComplexEnterAnyCarAsDriver_CreateFirstSubTask = 0x004FC985;
+    const uintptr_t OFF_CTaskSimpleCarOpenDoorFromOutside_ProcessPed = 0x00500CBD;
+
+    using CreateFirstSubTaskFn = void* (*)(void* task, void* ped);
+    using ProcessPedFn = bool (*)(void* task, void* ped);
+
+    CreateFirstSubTaskFn orgEnterCarCreateFirst = nullptr;
+    CreateFirstSubTaskFn orgEnterAnyCarAsDriverCreateFirst = nullptr;
+    ProcessPedFn orgOpenDoorProcessPed = nullptr;
+
+    const char* SeatName(int state)
     {
-        LPD_Log("[MODE] LuJim Passenger Driver ATIVADO");
-        Notifications::Show("LuJim Passenger Driver: ATIVADO");
+        switch(state)
+        {
+            case 0: return "Fora do veiculo";
+            case 1: return "Motorista";
+            case 2: return "Passageiro";
+            case 3: return "Dentro do veiculo";
+            default: return "Desconhecido";
+        }
     }
-    else
+
+    void ResolveMonitorSymbols()
     {
-        LPD_Log("[MODE] LuJim Passenger Driver DESATIVADO");
-        Notifications::Show("LuJim Passenger Driver: DESATIVADO");
+        if(gSymbolsResolved) return;
+        gSymbolsResolved = true;
+
+        gFindPlayerPed = GetFindPlayerPed();
+        gFindPlayerVehicle = GetFindPlayerVehicle();
+        gVehicleIsDriver = GetVehicleIsDriver();
+
+        if(!gSymbolsLogged)
+        {
+            LPD_Log("[MONITOR] V3.1.0 simbolos: FindPlayerPed=%p FindPlayerVehicle=%p CVehicle::IsDriver=%p",
+                    reinterpret_cast<void*>(gFindPlayerPed),
+                    reinterpret_cast<void*>(gFindPlayerVehicle),
+                    reinterpret_cast<void*>(gVehicleIsDriver));
+            gSymbolsLogged = true;
+        }
+    }
+
+    void ResetVehicleState()
+    {
+        gVehicleWasKnown = false;
+        gLastVehicle = nullptr;
+        gLastCandidateVehicle = nullptr;
+        gLastSeatState = 0;
+        gPassengerStableTicks = 0;
+        gLastPassengerVehicle = nullptr;
+        gPassengerModeLogged = false;
+    }
+
+    void ResetEntryCandidate()
+    {
+        gEntryCandidateActive = false;
+        gEntryCandidateVehicle = nullptr;
+        gEntryCandidateTicks = 0;
+        gEntryCandidateLogged = false;
+        gForcedDriverLogged = false;
+    }
+
+    void LogEntryHook(const char* hookName, void* task, void* ped)
+    {
+        ++gHookEventCount;
+
+        bool importantChange = (ped != gLastHookPed) || (task != gLastHookThis);
+        gLastHookPed = ped;
+        gLastHookThis = task;
+
+        if(importantChange || (gHookEventCount % 20) == 1)
+        {
+            LPD_Log("[HOOK-ENTRY] V3.1.0 %s chamado. Task=%p Ped=%p Enabled=%d ExperimentalHooks=%d Count=%u",
+                    hookName,
+                    task,
+                    ped,
+                    LPDSettings::values.enabled ? 1 : 0,
+                    LPDSettings::values.experimentalHooks ? 1 : 0,
+                    gHookEventCount);
+        }
+    }
+
+    void* Hook_EnterCar_CreateFirstSubTask(void* task, void* ped)
+    {
+        LogEntryHook("CTaskComplexEnterCar::CreateFirstSubTask", task, ped);
+        return orgEnterCarCreateFirst ? orgEnterCarCreateFirst(task, ped) : nullptr;
+    }
+
+    void* Hook_EnterAnyCarAsDriver_CreateFirstSubTask(void* task, void* ped)
+    {
+        LogEntryHook("CTaskComplexEnterAnyCarAsDriver::CreateFirstSubTask", task, ped);
+        return orgEnterAnyCarAsDriverCreateFirst ? orgEnterAnyCarAsDriverCreateFirst(task, ped) : nullptr;
+    }
+
+    bool Hook_OpenDoor_ProcessPed(void* task, void* ped)
+    {
+        LogEntryHook("CTaskSimpleCarOpenDoorFromOutside::ProcessPed", task, ped);
+        return orgOpenDoorProcessPed ? orgOpenDoorProcessPed(task, ped) : false;
+    }
+
+    void InstallEntryHooks()
+    {
+        if(gHooksTried) return;
+        gHooksTried = true;
+
+#ifndef AML32
+        LPD_Log("[HOOK] V3.1.0 hooks de entrada ignorados: build nao e ARM32.");
+        return;
+#else
+        if(!aml)
+        {
+            LPD_Log("[HOOK] V3.1.0 falha: AML interface nula.");
+            return;
+        }
+
+        if(!gSymbols.base)
+        {
+            LPD_Log("[HOOK] V3.1.0 falha: base da libGTASA ainda nao encontrada.");
+            return;
+        }
+
+        bool ok1 = aml->Hook((void*)GTASA(OFF_CTaskComplexEnterCar_CreateFirstSubTask),
+                             (void*)Hook_EnterCar_CreateFirstSubTask,
+                             (void**)&orgEnterCarCreateFirst);
+
+        bool ok2 = aml->Hook((void*)GTASA(OFF_CTaskComplexEnterAnyCarAsDriver_CreateFirstSubTask),
+                             (void*)Hook_EnterAnyCarAsDriver_CreateFirstSubTask,
+                             (void**)&orgEnterAnyCarAsDriverCreateFirst);
+
+        bool ok3 = aml->Hook((void*)GTASA(OFF_CTaskSimpleCarOpenDoorFromOutside_ProcessPed),
+                             (void*)Hook_OpenDoor_ProcessPed,
+                             (void**)&orgOpenDoorProcessPed);
+
+        gHooksInstalled = ok1 || ok2 || ok3;
+
+        LPD_Log("[HOOK] V3.1.0 Entry hooks instalados. ok1=%d ok2=%d ok3=%d base=0x%08x",
+                ok1 ? 1 : 0,
+                ok2 ? 1 : 0,
+                ok3 ? 1 : 0,
+                (unsigned int)gSymbols.base);
+
+        LPD_Log("[HOOK] Enderecos: EnterCarCreateFirst=%p EnterAnyDriverCreateFirst=%p OpenDoorProcessPed=%p",
+                GTASA(OFF_CTaskComplexEnterCar_CreateFirstSubTask),
+                GTASA(OFF_CTaskComplexEnterAnyCarAsDriver_CreateFirstSubTask),
+                GTASA(OFF_CTaskSimpleCarOpenDoorFromOutside_ProcessPed));
+#endif
+    }
+
+    void LogPassengerDetection(void* ped, void* vehicle)
+    {
+        if(vehicle != gLastPassengerVehicle)
+        {
+            gLastPassengerVehicle = vehicle;
+            gPassengerStableTicks = 0;
+            gPassengerModeLogged = false;
+        }
+
+        ++gPassengerStableTicks;
+
+        if(!gPassengerModeLogged)
+        {
+            LPD_Log("[PASSENGER] Entrada/estado como passageiro detectado. Ped=%p Vehicle=%p Ticks=%d",
+                    ped,
+                    vehicle,
+                    gPassengerStableTicks);
+            LPD_Log("[PASSENGER] V3.1.0 apenas detecta. Nao move jogador e nao controla recruta.");
+            gPassengerModeLogged = true;
+        }
+    }
+
+    void MonitorPlayerVehicle()
+    {
+        ResolveMonitorSymbols();
+
+        if(!gFindPlayerPed)
+        {
+            static bool warnedPedSymbol = false;
+            if(!warnedPedSymbol)
+            {
+                LPD_Log("[MONITOR] FindPlayerPed nao encontrado. Monitor de veiculo aguardando simbolo valido.");
+                warnedPedSymbol = true;
+            }
+            return;
+        }
+
+        void* ped = gFindPlayerPed(-1);
+        if(!ped)
+        {
+            if(gPlayerWasKnown)
+            {
+                LPD_Log("[PLAYER] CJ perdido/indisponivel");
+            }
+
+            gPlayerWasKnown = false;
+            gLastPed = nullptr;
+            ResetVehicleState();
+            ResetEntryCandidate();
+            return;
+        }
+
+        if(!gPlayerWasKnown || ped != gLastPed)
+        {
+            LPD_Log("[PLAYER] CJ encontrado. Ped=%p", ped);
+            gPlayerWasKnown = true;
+            gLastPed = ped;
+        }
+
+        void* vehicle = nullptr;
+        void* candidateVehicle = nullptr;
+        if(gFindPlayerVehicle)
+        {
+            vehicle = gFindPlayerVehicle(-1, false);
+            candidateVehicle = gFindPlayerVehicle(-1, true);
+        }
+        else
+        {
+            static bool warnedVehicleSymbol = false;
+            if(!warnedVehicleSymbol)
+            {
+                LPD_Log("[MONITOR] FindPlayerVehicle nao encontrado. Ainda nao e possivel detectar o veiculo atual.");
+                warnedVehicleSymbol = true;
+            }
+        }
+
+        if(candidateVehicle != gLastCandidateVehicle)
+        {
+            LPD_Log("[TARGET] V3.1.0 FindPlayerVehicle(includeRemote=true) mudou. CandidateVehicle=%p CurrentVehicle=%p",
+                    candidateVehicle,
+                    vehicle);
+            gLastCandidateVehicle = candidateVehicle;
+        }
+
+        int seatState = 0;
+        if(vehicle)
+        {
+            if(gVehicleIsDriver)
+            {
+                bool isDriver = gVehicleIsDriver(vehicle, ped);
+                seatState = isDriver ? 1 : 2;
+            }
+            else
+            {
+                seatState = 3;
+            }
+        }
+
+        bool changed = false;
+        if(vehicle != gLastVehicle) changed = true;
+        if(seatState != gLastSeatState) changed = true;
+
+        if(changed)
+        {
+            if(vehicle)
+            {
+                LPD_Log("[PLAYER] Dentro de veiculo. Vehicle=%p Seat=%s", vehicle, SeatName(seatState));
+                gVehicleWasKnown = true;
+            }
+            else
+            {
+                if(gVehicleWasKnown)
+                {
+                    LPD_Log("[PLAYER] Fora do veiculo");
+                }
+                ResetVehicleState();
+            }
+
+            gLastVehicle = vehicle;
+            gLastSeatState = seatState;
+        }
+
+        if(vehicle && seatState == 2)
+        {
+            LogPassengerDetection(ped, vehicle);
+        }
+        else if(seatState != 2)
+        {
+            gPassengerStableTicks = 0;
+            gLastPassengerVehicle = nullptr;
+            gPassengerModeLogged = false;
+        }
+
+        ++gMonitorTick;
+        if((gMonitorTick % 40) == 0)
+        {
+            LPD_Log("[MONITOR] V3.1.0 ativo. Ped=%p Vehicle=%p Candidate=%p Seat=%s HookEvents=%u HooksInstalled=%d Enabled=%d ExperimentalHooks=%d",
+                    ped,
+                    vehicle,
+                    candidateVehicle,
+                    SeatName(seatState),
+                    gHookEventCount,
+                    gHooksInstalled ? 1 : 0,
+                    LPDSettings::values.enabled ? 1 : 0,
+                    LPDSettings::values.experimentalHooks ? 1 : 0);
+        }
     }
 }
 
 void PassengerDriver::Init()
 {
-    LPD_Log(
-        "[INIT] LuJim Passenger Driver iniciado. Enabled=%d HoldTime=%d ExperimentalHooks=%d",
-        LPDSettings::values.enabled ? 1 : 0,
-        LPDSettings::values.holdTimeMs,
-        LPDSettings::values.experimentalHooks ? 1 : 0
-    );
+    LPDSettings::Load();
 
-    LPD_Log(
-        "[INIT] Modo salvo no INI: %s.",
-        LPDSettings::values.enabled ? "ativado" : "desativado"
-    );
+    LPD_Log("[INIT] LuJim Passenger Driver iniciado. Enabled=%d HoldTime=%d ExperimentalHooks=%d",
+            LPDSettings::values.enabled ? 1 : 0,
+            LPDSettings::values.holdTimeMs,
+            LPDSettings::values.experimentalHooks ? 1 : 0);
 
-    LPD_Log("[INIT] V3.0: teste de ativacao por botao. Nao move jogador e nao controla recruta.");
+    LPD_Log("[INIT] Modo salvo no INI: %s.",
+            LPDSettings::values.enabled ? "ativado" : "desativado");
+
+    LPD_Log("[INIT] V3.1.0: hook detector de entrada no veiculo. Nao move jogador ainda.");
+    InstallEntryHooks();
+}
+
+void PassengerDriver::Toggle()
+{
+    LPDSettings::SaveEnabled(!LPDSettings::values.enabled);
+
+    if(LPDSettings::values.enabled)
+    {
+        Notifications::Enabled();
+    }
+    else
+    {
+        Notifications::Disabled();
+    }
+
+    ResetEntryCandidate();
+
+    LPD_Log("[STATE] V3.1.0 Enabled=%d. Modo %s",
+            LPDSettings::values.enabled ? 1 : 0,
+            LPDSettings::values.enabled ? "ativado" : "desativado");
 }
 
 void PassengerDriver::Update(float dtMs)
@@ -54,92 +382,16 @@ void PassengerDriver::Update(float dtMs)
 
     if(Input::ConsumeToggleRequest())
     {
-        SetEnabled(!LPDSettings::values.enabled);
+        Toggle();
     }
 
-    void* ped = nullptr;
-    void* vehicle = nullptr;
-    void* candidateVehicle = nullptr;
-    bool isDriver = false;
+    MonitorPlayerVehicle();
 
-    FindPlayerPedFn findPed = GetFindPlayerPed();
-    FindPlayerVehicleFn findVehicle = GetFindPlayerVehicle();
-    VehicleIsDriverFn vehicleIsDriver = GetVehicleIsDriver();
-
-    if(findPed)
+    if(!LPDSettings::values.enabled)
     {
-        ped = findPed(0);
+        return;
     }
 
-    if(findVehicle)
-    {
-        vehicle = findVehicle(0, false);
-        candidateVehicle = findVehicle(0, true);
-    }
-
-    if(ped != g_lastPed)
-    {
-        if(ped)
-            LPD_Log("[PLAYER] CJ encontrado. Ped=%p", ped);
-        else
-            LPD_Log("[PLAYER] CJ perdido/indisponivel");
-
-        g_lastPed = ped;
-    }
-
-    if(candidateVehicle != g_lastCandidateVehicle)
-    {
-        LPD_Log(
-            "[TARGET] V3.0 CandidateVehicle mudou. CandidateVehicle=%p CurrentVehicle=%p",
-            candidateVehicle,
-            vehicle
-        );
-
-        g_lastCandidateVehicle = candidateVehicle;
-    }
-
-    if(vehicle && ped && vehicleIsDriver)
-    {
-        isDriver = vehicleIsDriver(vehicle, ped);
-    }
-
-    if(vehicle != g_lastVehicle)
-    {
-        if(vehicle)
-        {
-            LPD_Log(
-                "[PLAYER] Dentro de veiculo. Vehicle=%p Seat=%s",
-                vehicle,
-                isDriver ? "Motorista" : "Passageiro"
-            );
-        }
-        else
-        {
-            LPD_Log("[PLAYER] Fora do veiculo");
-        }
-
-        g_lastVehicle = vehicle;
-    }
-
-    g_loopCount++;
-
-    if(g_loopCount >= 4)
-    {
-        g_loopCount = 0;
-
-        LPD_Log(
-            "[MONITOR] V3.0 ativo. Ped=%p Vehicle=%p Candidate=%p Seat=%s Enabled=%s ExperimentalHooks=%s",
-            ped,
-            vehicle,
-            candidateVehicle,
-            vehicle ? (isDriver ? "Motorista" : "Passageiro") : "Fora do veiculo",
-            BoolText(LPDSettings::values.enabled),
-            BoolText(LPDSettings::values.experimentalHooks)
-        );
-    }
-}
-
-void PassengerDriver::Toggle()
-{
-    SetEnabled(!LPDSettings::values.enabled);
+    // V3.1.0: somente detecta as rotinas de entrada.
+    // A troca de banco ainda nao e aplicada nesta versao.
 }
