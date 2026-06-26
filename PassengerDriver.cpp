@@ -1,394 +1,191 @@
 #include "PassengerDriver.h"
 #include "Config.h"
-#include "Input.h"
-#include "Notifications.h"
-#include "Log.h"
-#include "Recruit.h"
-#include "Vehicle.h"
 #include "GameSymbols.h"
+#include "Input.h"
+#include "Log.h"
+#include "Notifications.h"
 
-#include <cstdint>
+#include <pthread.h>
+#include <unistd.h>
 
-namespace
+static bool g_running = false;
+static bool g_threadStarted = false;
+static bool g_allModsLoaded = false;
+static pthread_t g_thread;
+
+static void SetEnabled(bool enabled)
 {
-    FindPlayerPedFn gFindPlayerPed = nullptr;
-    FindPlayerVehicleFn gFindPlayerVehicle = nullptr;
-    VehicleIsDriverFn gVehicleIsDriver = nullptr;
+    LPDSettings::enabled = enabled;
+    LPDSettings::Save();
 
-    bool gSymbolsResolved = false;
-    bool gSymbolsLogged = false;
-
-    void* gLastPed = nullptr;
-    void* gLastVehicle = nullptr;
-    void* gLastCandidateVehicle = nullptr;
-    void* gLastPassengerVehicle = nullptr;
-
-    int gLastSeatState = -999;
-    int gPassengerStableTicks = 0;
-
-    bool gPlayerWasKnown = false;
-    bool gVehicleWasKnown = false;
-    bool gPassengerModeLogged = false;
-    bool gEntryCandidateLogged = false;
-    bool gEntryCandidateActive = false;
-    bool gForcedDriverLogged = false;
-    void* gEntryCandidateVehicle = nullptr;
-    int gEntryCandidateTicks = 0;
-
-    unsigned int gMonitorTick = 0;
-
-    const char* SeatName(int state)
+    if (enabled)
     {
-        switch(state)
-        {
-            case 0: return "Fora do veiculo";
-            case 1: return "Motorista";
-            case 2: return "Passageiro";
-            case 3: return "Dentro do veiculo";
-            default: return "Desconhecido";
-        }
+        LPD_Log("[MODE] LuJim Passenger Driver ATIVADO");
+        Notifications::Show("LuJim Passenger Driver: ATIVADO");
     }
-
-    void ResolveMonitorSymbols()
+    else
     {
-        if(gSymbolsResolved) return;
-        gSymbolsResolved = true;
-
-        gFindPlayerPed = GetFindPlayerPed();
-        gFindPlayerVehicle = GetFindPlayerVehicle();
-        gVehicleIsDriver = GetVehicleIsDriver();
-
-        if(!gSymbolsLogged)
-        {
-            LPD_Log("[MONITOR] V2.9.0 simbolos: FindPlayerPed=%p FindPlayerVehicle=%p CVehicle::IsDriver=%p",
-                    reinterpret_cast<void*>(gFindPlayerPed),
-                    reinterpret_cast<void*>(gFindPlayerVehicle),
-                    reinterpret_cast<void*>(gVehicleIsDriver));
-            gSymbolsLogged = true;
-        }
+        LPD_Log("[MODE] LuJim Passenger Driver DESATIVADO");
+        Notifications::Show("LuJim Passenger Driver: DESATIVADO");
     }
+}
 
-    void ResetVehicleState()
+static const char* BoolText(bool value)
+{
+    return value ? "1" : "0";
+}
+
+static void* MonitorThread(void*)
+{
+    LPD_Log("[THREAD] Monitor seguro V3.0 iniciado");
+
+    void* lastPed = nullptr;
+    void* lastVehicle = nullptr;
+    void* lastCandidateVehicle = nullptr;
+
+    int loopCount = 0;
+
+    while (g_running)
     {
-        gVehicleWasKnown = false;
-        gLastVehicle = nullptr;
-        gLastCandidateVehicle = nullptr;
-        gLastSeatState = 0;
-        gPassengerStableTicks = 0;
-        gLastPassengerVehicle = nullptr;
-        gPassengerModeLogged = false;
-    }
+        usleep(250000);
 
-    void ResetEntryCandidate()
-    {
-        gEntryCandidateActive = false;
-        gEntryCandidateVehicle = nullptr;
-        gEntryCandidateTicks = 0;
-        gEntryCandidateLogged = false;
-        gForcedDriverLogged = false;
-    }
+        Input::Update(250.0f);
 
-    void LogEntryCandidate(void* ped, void* currentVehicle, void* candidateVehicle)
-    {
-        if(!LPDSettings::values.enabled)
+        if (Input::ConsumeToggleRequest())
         {
-            ResetEntryCandidate();
-            return;
+            SetEnabled(!LPDSettings::enabled);
         }
 
-        if(!candidateVehicle || candidateVehicle == currentVehicle)
-        {
-            ResetEntryCandidate();
-            return;
-        }
-
-        if(candidateVehicle != gEntryCandidateVehicle)
-        {
-            gEntryCandidateVehicle = candidateVehicle;
-            gEntryCandidateTicks = 0;
-            gEntryCandidateLogged = false;
-            gEntryCandidateActive = true;
-        }
-
-        ++gEntryCandidateTicks;
-
-        if(!gEntryCandidateLogged)
-        {
-            LPD_Log("[ENTRY] V2.9.0 possivel tentativa de entrar em veiculo detectada. Ped=%p TargetVehicle=%p CurrentVehicle=%p Enabled=1", ped, candidateVehicle, currentVehicle);
-            LPD_Log("[ENTRY] V2.9.0 modo ativado pelo botao de 3 segundos. Ainda nao move jogador; apenas registra alvo de entrada.");
-            gEntryCandidateLogged = true;
-        }
-
-        if((gEntryCandidateTicks % 20) == 0)
-        {
-            LPD_Log("[ENTRY] V2.9.0 candidato mantido por %d ticks. TargetVehicle=%p CurrentVehicle=%p", gEntryCandidateTicks, candidateVehicle, currentVehicle);
-        }
-    }
-
-
-    void LogForcedDriverResult(void* ped, void* vehicle, int seatState)
-    {
-        if(!LPDSettings::values.enabled) return;
-        if(!vehicle) return;
-        if(seatState != 1) return;
-
-        if(!gForcedDriverLogged)
-        {
-            LPD_Log("[ACTION] V2.9.0 GTA colocou CJ como MOTORISTA. Ped=%p Vehicle=%p", ped, vehicle);
-            LPD_Log("[ACTION] V2.9.0 confirmado: o GTA Android nao cria estado de passageiro naturalmente. Proxima etapa precisa hook/funcao de entrada no banco.");
-            LPD_Log("[ACTION] V2.9.0 nenhuma troca de banco foi aplicada nesta versao para manter estabilidade.");
-            gForcedDriverLogged = true;
-        }
-    }
-
-    void LogPassengerDetection(void* ped, void* vehicle)
-    {
-        if(vehicle != gLastPassengerVehicle)
-        {
-            gLastPassengerVehicle = vehicle;
-            gPassengerStableTicks = 0;
-            gPassengerModeLogged = false;
-        }
-
-        ++gPassengerStableTicks;
-
-        if(!gPassengerModeLogged)
-        {
-            LPD_Log("[PASSENGER] Entrada/estado como passageiro detectado. Ped=%p Vehicle=%p Ticks=%d",
-                    ped,
-                    vehicle,
-                    gPassengerStableTicks);
-            LPD_Log("[PASSENGER] V2.9.0 apenas detecta. Nao move jogador e nao controla recruta.");
-            gPassengerModeLogged = true;
-        }
-    }
-
-    void MonitorPlayerVehicle()
-    {
-        ResolveMonitorSymbols();
-
-        if(!gFindPlayerPed)
-        {
-            static bool warnedPedSymbol = false;
-            if(!warnedPedSymbol)
-            {
-                LPD_Log("[MONITOR] FindPlayerPed nao encontrado. Monitor de veiculo aguardando simbolo valido.");
-                warnedPedSymbol = true;
-            }
-            return;
-        }
-
-        void* ped = gFindPlayerPed(-1);
-        if(!ped)
-        {
-            if(gPlayerWasKnown)
-            {
-                LPD_Log("[PLAYER] CJ perdido/indisponivel");
-            }
-
-            gPlayerWasKnown = false;
-            gLastPed = nullptr;
-            ResetVehicleState();
-            ResetEntryCandidate();
-            return;
-        }
-
-        if(!gPlayerWasKnown || ped != gLastPed)
-        {
-            LPD_Log("[PLAYER] CJ encontrado. Ped=%p", ped);
-            gPlayerWasKnown = true;
-            gLastPed = ped;
-        }
-
+        void* ped = nullptr;
         void* vehicle = nullptr;
         void* candidateVehicle = nullptr;
-        if(gFindPlayerVehicle)
+        bool isDriver = false;
+
+        if (GameSymbols::FindPlayerPed)
         {
-            // false = veiculo atual do jogador.
-            // true  = tentativa segura de pegar veiculo ligado ao jogador/entrada, se a versao do GTA disponibilizar.
-            vehicle = gFindPlayerVehicle(-1, false);
-            candidateVehicle = gFindPlayerVehicle(-1, true);
-        }
-        else
-        {
-            static bool warnedVehicleSymbol = false;
-            if(!warnedVehicleSymbol)
-            {
-                LPD_Log("[MONITOR] FindPlayerVehicle nao encontrado. Ainda nao e possivel detectar o veiculo atual.");
-                warnedVehicleSymbol = true;
-            }
+            ped = GameSymbols::FindPlayerPed(0);
         }
 
-        if(candidateVehicle != gLastCandidateVehicle)
+        if (GameSymbols::FindPlayerVehicle)
         {
-            LPD_Log("[TARGET] V2.9.0 FindPlayerVehicle(includeRemote=true) mudou. CandidateVehicle=%p CurrentVehicle=%p",
-                    candidateVehicle,
-                    vehicle);
-            gLastCandidateVehicle = candidateVehicle;
+            vehicle = GameSymbols::FindPlayerVehicle(0, false);
+            candidateVehicle = GameSymbols::FindPlayerVehicle(0, true);
         }
 
-        // V2.9.0: quando o modo esta ativado pelo botao de 3 segundos,
-        // o mod observa o veiculo candidato de entrada.
-        // Nesta versao ele apenas registra no log, sem mover o jogador.
-        LogEntryCandidate(ped, vehicle, candidateVehicle);
-
-        int seatState = 0;
-        if(vehicle)
+        if (ped != lastPed)
         {
-            if(gVehicleIsDriver)
-            {
-                bool isDriver = gVehicleIsDriver(vehicle, ped);
-                seatState = isDriver ? 1 : 2;
-            }
+            if (ped)
+                LPD_Log("[PLAYER] CJ encontrado. Ped=%p", ped);
             else
+                LPD_Log("[PLAYER] CJ perdido/indisponivel");
+
+            lastPed = ped;
+        }
+
+        if (candidateVehicle != lastCandidateVehicle)
+        {
+            LPD_Log(
+                "[TARGET] V3.0 CandidateVehicle mudou. CandidateVehicle=%p CurrentVehicle=%p",
+                candidateVehicle,
+                vehicle
+            );
+
+            lastCandidateVehicle = candidateVehicle;
+        }
+
+        if (vehicle && ped && GameSymbols::CVehicle_IsDriver)
+        {
+            isDriver = GameSymbols::CVehicle_IsDriver(vehicle, ped);
+        }
+
+        if (vehicle != lastVehicle)
+        {
+            if (vehicle)
             {
-                seatState = 3;
-            }
-        }
-
-        bool changed = false;
-        if(vehicle != gLastVehicle) changed = true;
-        if(seatState != gLastSeatState) changed = true;
-
-        if(changed)
-        {
-            if(vehicle)
-            {
-                LPD_Log("[PLAYER] Dentro de veiculo. Vehicle=%p Seat=%s", vehicle, SeatName(seatState));
-                if(gEntryCandidateActive)
-                {
-                    LPD_Log("[ENTRY] V2.9.0 entrada concluida apos candidato. Candidate=%p FinalVehicle=%p FinalSeat=%s",
-                            gEntryCandidateVehicle,
-                            vehicle,
-                            SeatName(seatState));
-                    ResetEntryCandidate();
-                }
-                LogForcedDriverResult(ped, vehicle, seatState);
-                gVehicleWasKnown = true;
-            }
-            else
-            {
-                if(gVehicleWasKnown)
-                {
-                    LPD_Log("[PLAYER] Fora do veiculo");
-                }
-                ResetVehicleState();
-            }
-
-            gLastVehicle = vehicle;
-            gLastSeatState = seatState;
-        }
-
-        if(vehicle && seatState == 2)
-        {
-            LogPassengerDetection(ped, vehicle);
-        }
-        else if(seatState != 2)
-        {
-            gPassengerStableTicks = 0;
-            gLastPassengerVehicle = nullptr;
-            gPassengerModeLogged = false;
-        }
-
-        ++gMonitorTick;
-        if((gMonitorTick % 40) == 0)
-        {
-            LPD_Log("[MONITOR] V2.9.0 ativo. Ped=%p Vehicle=%p Candidate=%p Seat=%s PassengerTicks=%d EntryTicks=%d Enabled=%d ExperimentalHooks=%d",
-                    ped,
+                LPD_Log(
+                    "[PLAYER] Dentro de veiculo. Vehicle=%p Seat=%s",
                     vehicle,
-                    candidateVehicle,
-                    SeatName(seatState),
-                    gPassengerStableTicks,
-                    gEntryCandidateTicks,
-                    LPDSettings::values.enabled ? 1 : 0,
-                    LPDSettings::values.experimentalHooks ? 1 : 0);
+                    isDriver ? "Motorista" : "Passageiro"
+                );
+            }
+            else
+            {
+                LPD_Log("[PLAYER] Fora do veiculo");
+            }
+
+            lastVehicle = vehicle;
+        }
+
+        loopCount++;
+
+        if (loopCount >= 4)
+        {
+            loopCount = 0;
+
+            LPD_Log(
+                "[MONITOR] V3.0 ativo. Ped=%p Vehicle=%p Candidate=%p Seat=%s Enabled=%s ExperimentalHooks=%s AllModsLoaded=%s",
+                ped,
+                vehicle,
+                candidateVehicle,
+                vehicle ? (isDriver ? "Motorista" : "Passageiro") : "Fora do veiculo",
+                BoolText(LPDSettings::enabled),
+                BoolText(LPDSettings::experimentalHooks),
+                BoolText(g_allModsLoaded)
+            );
         }
     }
+
+    LPD_Log("[THREAD] Monitor seguro V3.0 finalizado");
+    return nullptr;
 }
 
 void PassengerDriver::Init()
 {
-    LPDSettings::Load();
-
-    LPD_Log("[INIT] LuJim Passenger Driver iniciado. Enabled=%d HoldTime=%d ExperimentalHooks=%d",
-            LPDSettings::values.enabled ? 1 : 0,
-            LPDSettings::values.holdTimeMs,
-            LPDSettings::values.experimentalHooks ? 1 : 0);
-
-    if(LPDSettings::values.enabled)
+    if (g_threadStarted)
     {
-        LPD_Log("[INIT] Modo salvo no INI: ativado.");
+        LPD_Log("[INIT] PassengerDriver::Init ignorado: thread ja iniciada");
+        return;
+    }
+
+    LPD_Log(
+        "[INIT] LuJim Passenger Driver iniciado. Enabled=%d HoldTime=%d ExperimentalHooks=%d",
+        LPDSettings::enabled ? 1 : 0,
+        LPDSettings::holdTimeMs,
+        LPDSettings::experimentalHooks ? 1 : 0
+    );
+
+    LPD_Log(
+        "[INIT] Modo salvo no INI: %s.",
+        LPDSettings::enabled ? "ativado" : "desativado"
+    );
+
+    LPD_Log("[INIT] V3.0: teste de ativacao por botao. Nao move jogador e nao controla recruta.");
+
+    g_running = true;
+
+    if (pthread_create(&g_thread, nullptr, MonitorThread, nullptr) == 0)
+    {
+        g_threadStarted = true;
+        LPD_Log("[THREAD] Monitor seguro criado com sucesso");
     }
     else
     {
-        LPD_Log("[INIT] Modo salvo no INI: desativado.");
+        g_running = false;
+        LPD_Log("[THREAD] Falha ao criar monitor seguro");
     }
-
-    LPD_Log("[INIT] V2.9.0: modo ativa/desativa por 3 segundos e detecta entrada forcada como motorista. Nao move jogador ainda.");
 }
 
-void PassengerDriver::Toggle()
+void PassengerDriver::OnAllModsLoaded()
 {
-    LPDSettings::SaveEnabled(!LPDSettings::values.enabled);
-
-    if(LPDSettings::values.enabled)
-    {
-        Notifications::Enabled();
-    }
-    else
-    {
-        Notifications::Disabled();
-    }
-
-    ResetEntryCandidate();
-
-    LPD_Log("[STATE] V2.9.0 Enabled=%d. Modo por 3 segundos %s",
-            LPDSettings::values.enabled ? 1 : 0,
-            LPDSettings::values.enabled ? "ativado" : "desativado");
+    g_allModsLoaded = true;
 }
 
-void PassengerDriver::Update(float dtMs)
+void PassengerDriver::Shutdown()
 {
-    Input::Update(dtMs);
-
-    if(Input::ConsumeToggleRequest())
-    {
-        Toggle();
-    }
-
-    // V2.9.0: monitoramento seguro sempre ativo para teste.
-    // Ele detecta quando o GTA força o CJ para motorista, sem mover o jogador.
-    MonitorPlayerVehicle();
-
-    if(!LPDSettings::values.enabled)
-    {
+    if (!g_threadStarted)
         return;
-    }
 
-    if(!LPDSettings::values.experimentalHooks)
-    {
-        static bool warned = false;
-        if(!warned)
-        {
-            LPD_Log("[SAFE] ExperimentalHooks=0. V2.9.0 detecta quando o GTA força entrada como motorista. Acao real ainda bloqueada para evitar crash.");
-            warned = true;
-        }
-        return;
-    }
-
-    // Etapa experimental futura: aqui vamos detectar veiculo/recruta e iniciar controle real.
-    void* veh = Vehicle::FindTargetVehicle();
-    void* rec = Recruit::FindValidRecruit();
-
-    if(!veh || !rec)
-    {
-        static bool warnedMissing = false;
-        if(!warnedMissing)
-        {
-            Notifications::NoRecruit();
-            LPD_Log("[MONITOR] Nenhum veiculo/recruta valido detectado no modo experimental.");
-            warnedMissing = true;
-        }
-        return;
-    }
+    g_running = false;
+    pthread_join(g_thread, nullptr);
+    g_threadStarted = false;
 }
